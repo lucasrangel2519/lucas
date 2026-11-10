@@ -139,7 +139,8 @@ def cmd_run(cfg: Config, args) -> None:
 
 def cmd_refresh(cfg: Config, args) -> None:
     tokens: dict = {}
-    if cfg.ig_access_token:
+    # tokens EAA (usuario do sistema) nao expiram: so renova tokens IG
+    if cfg.ig_access_token and not cfg.ig_access_token.startswith("EAA"):
         data = instagram.refresh_token(cfg.ig_access_token)
         tokens["IG_ACCESS_TOKEN"] = data["access_token"]
         print(f"Instagram: token renovado (expira em {int(data.get('expires_in', 0)) // 86400} dias)")
