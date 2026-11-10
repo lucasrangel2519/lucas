@@ -16,6 +16,7 @@ import requests
 AUTH_URL = "https://www.instagram.com/oauth/authorize"
 SHORT_TOKEN_URL = "https://api.instagram.com/oauth/access_token"
 GRAPH = "https://graph.instagram.com"
+GRAPH_FB = "https://graph.facebook.com"  # tokens EAA (login unificado / usuario do sistema)
 RUPLOAD = "https://rupload.facebook.com/ig-api-upload"
 SCOPES = "instagram_business_basic,instagram_business_content_publish"
 
@@ -114,7 +115,8 @@ class InstagramClient:
             raise InstagramError("Configure IG_USER_ID e IG_ACCESS_TOKEN (rode: python -m autopost auth-instagram)")
         self.user_id = user_id
         self.token = access_token
-        self.base = f"{GRAPH}/{api_version}"
+        graph = GRAPH_FB if access_token.startswith("EAA") else GRAPH
+        self.base = f"{graph}/{api_version}"
         self.api_version = api_version
         self.media_base_url = media_base_url.rstrip("/")
         self.root = root or Path.cwd()
