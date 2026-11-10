@@ -1,0 +1,330 @@
+# Agenda de postagens - semana 1
+# Cada dia: 3 posts no Instagram (carrossel 09:00, foto 12:30, reels 20:00)
+#          + 1 video no Stories (17:30) + 1 video no TikTok (19:00).
+# O reels reaproveita o mesmo video do TikTok (grave sem marca d'agua).
+# Basta colocar os arquivos na pasta media/AAAA-MM-DD/ com os nomes abaixo.
+# A legenda do stories nao aparece (o Instagram nao aceita texto via API) - serve de lembrete.
+# Se o arquivo nao estiver la na hora, o item espera (ate JANELA_ATRASO_HORAS).
+
+- id: 2026-11-11-ig-carrossel
+  quando: 2026-11-11 09:00
+  plataforma: instagram
+  tipo: carrossel
+  arquivos:
+  - media/2026-11-11/carrossel-1.jpg
+  - media/2026-11-11/carrossel-2.jpg
+  - media/2026-11-11/carrossel-3.jpg
+  legenda: |-
+    Destaques da semana no pátio 🔥 Arrasta pro lado e me diz qual você levaria pra casa 👉
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-11-ig-post
+  quando: 2026-11-11 12:30
+  plataforma: instagram
+  tipo: post
+  arquivo: media/2026-11-11/post.jpg
+  legenda: |-
+    Mais uma família realizando o sonho do carro novo! Parabéns e obrigado pela confiança 🙌
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-11-ig-stories
+  quando: 2026-11-11 17:30
+  plataforma: instagram
+  tipo: stories
+  arquivo: media/2026-11-11/stories.mp4
+  legenda: Fim de tarde direto do pátio 🌇
+- id: 2026-11-11-tiktok
+  quando: 2026-11-11 19:00
+  plataforma: tiktok
+  tipo: video
+  arquivo: media/2026-11-11/tiktok.mp4
+  legenda: 'POV: o cliente pegando a chave do carro novo pela primeira vez 🔑 Essa reação não tem preço! #vendedordecarros #volkswagen #carros #carrozeroKm #fyp #viral'
+- id: 2026-11-11-ig-reels
+  quando: 2026-11-11 20:00
+  plataforma: instagram
+  tipo: reels
+  arquivo: media/2026-11-11/tiktok.mp4
+  legenda: |-
+    A entrega mais emocionante da semana 😭🔑
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-12-ig-carrossel
+  quando: 2026-11-12 09:00
+  plataforma: instagram
+  tipo: carrossel
+  arquivos:
+  - media/2026-11-12/carrossel-1.jpg
+  - media/2026-11-12/carrossel-2.jpg
+  - media/2026-11-12/carrossel-3.jpg
+  legenda: |-
+    Polo, Virtus ou T-Cross? Compara comigo e me fala qual é a sua cara 👇
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-12-ig-post
+  quando: 2026-11-12 12:30
+  plataforma: instagram
+  tipo: post
+  arquivo: media/2026-11-12/post.jpg
+  legenda: |-
+    Bastidor do dia: preparando o carro pra entrega impecável ✨
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-12-ig-stories
+  quando: 2026-11-12 17:30
+  plataforma: instagram
+  tipo: stories
+  arquivo: media/2026-11-12/stories.mp4
+  legenda: 'Enquete: SUV ou sedã? Responde aí 👆'
+- id: 2026-11-12-tiktok
+  quando: 2026-11-12 19:00
+  plataforma: tiktok
+  tipo: video
+  arquivo: media/2026-11-12/tiktok.mp4
+  legenda: '3 coisas que ninguém te conta antes de comprar o primeiro carro 👀 Salva pra não esquecer! #vendedordecarros #volkswagen #carros #carrozeroKm #fyp #viral'
+- id: 2026-11-12-ig-reels
+  quando: 2026-11-12 20:00
+  plataforma: instagram
+  tipo: reels
+  arquivo: media/2026-11-12/tiktok.mp4
+  legenda: |-
+    Primeiro carro: 3 dicas que vão te economizar dinheiro 💰
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-13-ig-carrossel
+  quando: 2026-11-13 09:00
+  plataforma: instagram
+  tipo: carrossel
+  arquivos:
+  - media/2026-11-13/carrossel-1.jpg
+  - media/2026-11-13/carrossel-2.jpg
+  - media/2026-11-13/carrossel-3.jpg
+  legenda: |-
+    Seminovo com procedência: o que eu confiro antes de indicar pra um cliente ✅
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-13-ig-post
+  quando: 2026-11-13 12:30
+  plataforma: instagram
+  tipo: post
+  arquivo: media/2026-11-13/post.jpg
+  legenda: |-
+    Bom dia! Pátio cheio e café passado ☕ Bora fazer negócio?
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-13-ig-stories
+  quando: 2026-11-13 17:30
+  plataforma: instagram
+  tipo: stories
+  arquivo: media/2026-11-13/stories.mp4
+  legenda: Chegou novidade no pátio 👀
+- id: 2026-11-13-tiktok
+  quando: 2026-11-13 19:00
+  plataforma: tiktok
+  tipo: video
+  arquivo: media/2026-11-13/tiktok.mp4
+  legenda: 'Teste: adivinha o modelo só pelo som da porta 🚪🔊 Comenta seu palpite! #vendedordecarros #volkswagen #carros #carrozeroKm #fyp #viral'
+- id: 2026-11-13-ig-reels
+  quando: 2026-11-13 20:00
+  plataforma: instagram
+  tipo: reels
+  arquivo: media/2026-11-13/tiktok.mp4
+  legenda: |-
+    Adivinha o carro pelo barulho da porta 🔊
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-14-ig-carrossel
+  quando: 2026-11-14 09:00
+  plataforma: instagram
+  tipo: carrossel
+  arquivos:
+  - media/2026-11-14/carrossel-1.jpg
+  - media/2026-11-14/carrossel-2.jpg
+  - media/2026-11-14/carrossel-3.jpg
+  legenda: |-
+    Financiamento sem mistério: entrada, parcelas e prazo explicados em 4 telas 📊
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-14-ig-post
+  quando: 2026-11-14 12:30
+  plataforma: instagram
+  tipo: post
+  arquivo: media/2026-11-14/post.jpg
+  legenda: |-
+    Cliente satisfeito é o melhor marketing que existe 🤝 Obrigado pela confiança!
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-14-ig-stories
+  quando: 2026-11-14 17:30
+  plataforma: instagram
+  tipo: stories
+  arquivo: media/2026-11-14/stories.mp4
+  legenda: Rotina da concessionária ⏱️
+- id: 2026-11-14-tiktok
+  quando: 2026-11-14 19:00
+  plataforma: tiktok
+  tipo: video
+  arquivo: media/2026-11-14/tiktok.mp4
+  legenda: 'Um dia na vida de um vendedor de carros 🚗 Do café às 8h até a última entrega #vendedordecarros #volkswagen #carros #carrozeroKm #fyp #viral'
+- id: 2026-11-14-ig-reels
+  quando: 2026-11-14 20:00
+  plataforma: instagram
+  tipo: reels
+  arquivo: media/2026-11-14/tiktok.mp4
+  legenda: |-
+    Um dia na vida de vendedor de carros 🚗
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-15-ig-carrossel
+  quando: 2026-11-15 09:00
+  plataforma: instagram
+  tipo: carrossel
+  arquivos:
+  - media/2026-11-15/carrossel-1.jpg
+  - media/2026-11-15/carrossel-2.jpg
+  - media/2026-11-15/carrossel-3.jpg
+  legenda: |-
+    Sextou no pátio! Os mais procurados da semana 🔥 Qual é o seu favorito?
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-15-ig-post
+  quando: 2026-11-15 12:30
+  plataforma: instagram
+  tipo: post
+  arquivo: media/2026-11-15/post.jpg
+  legenda: |-
+    Entrega de sexta-feira é diferente 😎 Fim de semana com carro novo!
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-15-ig-stories
+  quando: 2026-11-15 17:30
+  plataforma: instagram
+  tipo: stories
+  arquivo: media/2026-11-15/stories.mp4
+  legenda: Sextou com entrega 🎉
+- id: 2026-11-15-tiktok
+  quando: 2026-11-15 19:00
+  plataforma: tiktok
+  tipo: video
+  arquivo: media/2026-11-15/tiktok.mp4
+  legenda: 'Cliente perguntou: ''vale a pena trocar meu carro agora?'' Minha resposta sincera 👇 #vendedordecarros #volkswagen #carros #carrozeroKm #fyp #viral'
+- id: 2026-11-15-ig-reels
+  quando: 2026-11-15 20:00
+  plataforma: instagram
+  tipo: reels
+  arquivo: media/2026-11-15/tiktok.mp4
+  legenda: |-
+    Vale a pena trocar de carro agora? 🤔
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-16-ig-carrossel
+  quando: 2026-11-16 09:00
+  plataforma: instagram
+  tipo: carrossel
+  arquivos:
+  - media/2026-11-16/carrossel-1.jpg
+  - media/2026-11-16/carrossel-2.jpg
+  - media/2026-11-16/carrossel-3.jpg
+  legenda: |-
+    Checklist do test drive: o que observar antes de fechar negócio 📝
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-16-ig-post
+  quando: 2026-11-16 12:30
+  plataforma: instagram
+  tipo: post
+  arquivo: media/2026-11-16/post.jpg
+  legenda: |-
+    Sábado de pátio movimentado! Passa aqui pra tomar um café e conhecer os carros ☕
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-16-ig-stories
+  quando: 2026-11-16 17:30
+  plataforma: instagram
+  tipo: stories
+  arquivo: media/2026-11-16/stories.mp4
+  legenda: Sábado de pátio cheio 🚗
+- id: 2026-11-16-tiktok
+  quando: 2026-11-16 19:00
+  plataforma: tiktok
+  tipo: video
+  arquivo: media/2026-11-16/tiktok.mp4
+  legenda: 'Detalhes que você nunca reparou no seu Volkswagen 🤯 O último é o melhor #vendedordecarros #volkswagen #carros #carrozeroKm #fyp #viral'
+- id: 2026-11-16-ig-reels
+  quando: 2026-11-16 20:00
+  plataforma: instagram
+  tipo: reels
+  arquivo: media/2026-11-16/tiktok.mp4
+  legenda: |-
+    Detalhes escondidos que você nunca reparou 🤯
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-17-ig-carrossel
+  quando: 2026-11-17 09:00
+  plataforma: instagram
+  tipo: carrossel
+  arquivos:
+  - media/2026-11-17/carrossel-1.jpg
+  - media/2026-11-17/carrossel-2.jpg
+  - media/2026-11-17/carrossel-3.jpg
+  legenda: |-
+    Resumo da semana: entregas, novidades e o que vem por aí 📅
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-17-ig-post
+  quando: 2026-11-17 12:30
+  plataforma: instagram
+  tipo: post
+  arquivo: media/2026-11-17/post.jpg
+  legenda: |-
+    Domingo é dia de agradecer! Obrigado a cada cliente da semana 🙏
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros
+- id: 2026-11-17-ig-stories
+  quando: 2026-11-17 17:30
+  plataforma: instagram
+  tipo: stories
+  arquivo: media/2026-11-17/stories.mp4
+  legenda: 'Caixinha de perguntas: me pergunta qualquer coisa sobre carros ❓'
+- id: 2026-11-17-tiktok
+  quando: 2026-11-17 19:00
+  plataforma: tiktok
+  tipo: video
+  arquivo: media/2026-11-17/tiktok.mp4
+  legenda: 'Reagindo aos comentários de vocês da semana 😂 Respondo tudo! #vendedordecarros #volkswagen #carros #carrozeroKm #fyp #viral'
+- id: 2026-11-17-ig-reels
+  quando: 2026-11-17 20:00
+  plataforma: instagram
+  tipo: reels
+  arquivo: media/2026-11-17/tiktok.mp4
+  legenda: |-
+    Reagindo aos comentários da semana 😂
+
+    Chama no direct ou comenta EU QUERO que eu te atendo pessoalmente 🚗
+
+    #volkswagen #vw #autobel #carrozero #seminovos #vendedordecarros

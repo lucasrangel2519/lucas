@@ -1,0 +1,89 @@
+name: Postagem automatica
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # confere a agenda a cada 15 min
+    - cron: "17 6 * * 1"     # toda segunda: renova os tokens
+  workflow_dispatch:
+    inputs:
+      comando:
+        description: "run | testar | refresh-tokens | validar"
+        default: run
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autopost
+  cancel-in-progress: false
+
+jobs:
+  autopost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IG_USER_ID: ${{ secrets.IG_USER_ID }}
+      IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+      IG_API_VERSION: ${{ vars.IG_API_VERSION }}
+      TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+      TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+      TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+      TIKTOK_PRIVACY_LEVEL: ${{ vars.TIKTOK_PRIVACY_LEVEL }}
+      TIKTOK_BRAND_ORGANIC: ${{ vars.TIKTOK_BRAND_ORGANIC }}
+      MEDIA_BASE_URL: ${{ vars.MEDIA_BASE_URL || format('https://raw.githubusercontent.com/{0}/{1}', github.repository, github.ref_name) }}
+      TIMEZONE: America/Sao_Paulo
+      JANELA_ATRASO_HORAS: ${{ vars.JANELA_ATRASO_HORAS }}
+      DRY_RUN: ${{ vars.DRY_RUN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Executar
+        id: exec
+        run: |
+          CMD="${{ inputs.comando }}"
+          if [ -z "$CMD" ]; then
+            if [ "${{ github.event.schedule }}" = "17 6 * * 1" ]; then CMD=refresh-tokens; else CMD=run; fi
+          fi
+          if [ "$CMD" = "validar" ]; then
+            python -m autopost validar
+          else
+            python -m autopost "$CMD" --tokens-out "$RUNNER_TEMP/tokens.json"
+          fi
+
+      - name: Salvar tokens renovados nos Secrets
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          FILE="$RUNNER_TEMP/tokens.json"
+          [ -s "$FILE" ] || exit 0
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Tokens renovados, mas falta o secret GH_PAT para salva-los. Veja o README."
+            exit 0
+          fi
+          python - "$FILE" <<'PY'
+          import json, subprocess, sys
+          for name, value in json.load(open(sys.argv[1])).items():
+              print(f"::add-mask::{value}")
+              subprocess.run(["gh", "secret", "set", name, "--repo", "${{ github.repository }}"],
+                             input=value, text=True, check=True)
+              print(f"Secret {name} atualizado")
+          PY
+          rm -f "$FILE"
+
+      - name: Registrar o que foi publicado
+        if: always()
+        run: |
+          git diff --quiet agenda/publicados.json && exit 0
+          git config user.name "autopost-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agenda/publicados.json
+          git commit -m "Registra postagens publicadas [skip ci]"
+          for i in 1 2 3; do git pull --rebase && git push && break; sleep 5; done
