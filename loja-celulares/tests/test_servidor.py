@@ -205,6 +205,100 @@ class TesteSistema(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertTrue(bruto.startswith(b"SQLite format 3"))
 
+    def test_financeiro_gerado_por_venda_e_compra(self):
+        st, cli = self.adm.req("POST", "/api/clientes", {"nome": "Cliente Crediário"})
+        p = self.produto(nome="Carregador fin", preco_custo=40, preco_venda=100)
+        compra = self.mov(tipo="entrada", motivo="Compra", condicao_pagamento="a_prazo", forma_pagamento="Outro",
+                          parcelas=2, primeiro_vencimento="2030-01-31",
+                          itens=[{"produto_id": p["id"], "quantidade": 5, "valor_unitario": 40}])
+        self.assertEqual([(f["valor"], f["vencimento"], f["pago_em"]) for f in compra["financeiro"]],
+                         [(100, "2030-01-31", None), (100, "2030-02-28", None)])
+        # crediário sem cliente é recusado
+        self.mov(esperado=400, tipo="saida", motivo="Venda", forma_pagamento="Crediário",
+                 itens=[{"produto_id": p["id"], "quantidade": 1}])
+        v = self.mov(tipo="saida", motivo="Venda", forma_pagamento="Crediário", cliente_id=cli["id"], parcelas=3,
+                     itens=[{"produto_id": p["id"], "quantidade": 1, "valor_unitario": 100}])
+        self.assertEqual([f["valor"] for f in v["financeiro"]], [33.33, 33.33, 33.34])
+        self.assertTrue(all(f["pago_em"] is None for f in v["financeiro"]))
+        avista = self.mov(tipo="saida", motivo="Venda", forma_pagamento="PIX",
+                          itens=[{"produto_id": p["id"], "quantidade": 1, "valor_unitario": 100}])
+        self.assertIsNotNone(avista["financeiro"][0]["pago_em"])
+        # baixa de parcela e cancelamento da venda cancela o financeiro
+        fid = v["financeiro"][0]["id"]
+        st, r = self.adm.req("POST", f"/api/financeiro/{fid}/baixar", {"forma_pagamento": "Dinheiro"})
+        self.assertEqual((st, r["situacao"]), (200, "pago"))
+        self.assertEqual(self.adm.req("DELETE", f"/api/financeiro/{fid}")[0], 400)  # veio de venda
+        self.adm.req("POST", f"/api/movimentacoes/{v['id']}/cancelar", {"motivo": "teste"})
+        st, lista = self.adm.req("GET", "/api/financeiro?tipo=receber&situacao=todos&q=Venda")
+        self.assertNotIn(v["id"], [f["movimentacao_id"] for f in lista])
+        # despesa fixa repetida 3 meses
+        st, _ = self.adm.req("POST", "/api/financeiro", {"tipo": "pagar", "descricao": "Aluguel teste", "categoria": "Aluguel",
+                                                         "valor": 1000, "vencimento": "2031-01-10", "parcelas": 3, "repetir": True})
+        st, lista = self.adm.req("GET", "/api/financeiro?tipo=pagar&q=Aluguel+teste")
+        self.assertEqual([(f["valor"], f["vencimento"]) for f in lista],
+                         [(1000, "2031-01-10"), (1000, "2031-02-10"), (1000, "2031-03-10")])
+        st, r = self.adm.req("GET", "/api/relatorios/financeiro")
+        self.assertEqual(st, 200)
+        self.assertIn("dre", r)
+
+    def test_ordem_de_servico(self):
+        st, cli = self.adm.req("POST", "/api/clientes", {"nome": "Cliente OS", "telefone": "11988887777"})
+        peca = self.produto(nome="Bateria peça", categoria="Peça", preco_custo=50, preco_venda=120)
+        self.mov(tipo="entrada", motivo="Compra", itens=[{"produto_id": peca["id"], "quantidade": 2, "valor_unitario": 50}])
+        st, o = self.adm.req("POST", "/api/os", {"cliente_id": cli["id"], "aparelho": "Moto G", "defeito": "Bateria",
+                                                 "servicos": [{"descricao": "Troca de bateria", "valor": 80}],
+                                                 "pecas": [{"produto_id": peca["id"], "quantidade": 1, "valor_unitario": 120}],
+                                                 "desconto": 10})
+        self.assertEqual(st, 200, o)
+        self.assertEqual((o["status"], o["total"]), ("Aberta", 190))
+        self.assertEqual(self.estoque(peca["id"])["estoque_atual"], 2)  # peça só sai na entrega
+        st, o = self.adm.req("POST", f"/api/os/{o['id']}/status", {"status": "Pronta para retirada"})
+        self.assertEqual(o["status"], "Pronta para retirada")
+        self.assertEqual(self.adm.req("POST", f"/api/os/{o['id']}/status", {"status": "Entregue"})[0], 400)
+        st, o = self.adm.req("POST", f"/api/os/{o['id']}/entregar", {"forma_pagamento": "PIX"})
+        self.assertEqual((st, o["status"]), (200, "Entregue"))
+        self.assertEqual(self.estoque(peca["id"])["estoque_atual"], 1)
+        self.assertEqual(o["financeiro"][0]["valor"], 190)
+        # a saída da OS não pode ser cancelada por fora
+        self.assertEqual(self.adm.req("POST", f"/api/movimentacoes/{o['movimentacao_id']}/cancelar", {"motivo": "x"})[0], 400)
+        self.assertEqual(self.adm.req("PUT", f"/api/os/{o['id']}", {"cliente_id": cli["id"], "aparelho": "x", "defeito": "y"})[0], 400)
+        st, o = self.adm.req("POST", f"/api/os/{o['id']}/cancelar", {"motivo": "garantia"})
+        self.assertEqual(o["status"], "Cancelada")
+        self.assertEqual(self.estoque(peca["id"])["estoque_atual"], 2)
+        self.assertTrue(all(f["cancelado"] for f in o["financeiro"]))
+
+    def test_orcamento_convertido_em_venda(self):
+        p = self.produto(nome="Capa orçamento", preco_venda=50)
+        self.mov(tipo="entrada", motivo="Compra", itens=[{"produto_id": p["id"], "quantidade": 3, "valor_unitario": 10}])
+        st, o = self.adm.req("POST", "/api/orcamentos", {"itens": [{"produto_id": p["id"], "quantidade": 2}], "desconto": 5})
+        self.assertEqual((st, o["total"], o["status"]), (200, 95, "aberto"))
+        v = self.mov(tipo="saida", motivo="Venda", forma_pagamento="PIX", orcamento_id=o["id"], desconto=5,
+                     itens=[{"produto_id": p["id"], "quantidade": 2, "valor_unitario": 50}])
+        st, o2 = self.adm.req("GET", f"/api/orcamentos/{o['id']}")
+        self.assertEqual((o2["status"], o2["movimentacao_id"]), ("convertido", v["id"]))
+        self.mov(esperado=400, tipo="saida", motivo="Venda", forma_pagamento="PIX", orcamento_id=o["id"],
+                 itens=[{"produto_id": p["id"], "quantidade": 1}])
+
+    def test_caixa(self):
+        self.adm.req("POST", "/api/caixa/fechar", {"saldo_informado": 0})  # garante caixa fechado
+        st, r = self.adm.req("POST", "/api/caixa/abrir", {"saldo_inicial": 100})
+        self.assertEqual(st, 200)
+        self.assertEqual(self.adm.req("POST", "/api/caixa/abrir", {"saldo_inicial": 1})[0], 400)
+        p = self.produto(nome="Item caixa", preco_venda=30)
+        self.mov(tipo="entrada", motivo="Compra", itens=[{"produto_id": p["id"], "quantidade": 2, "valor_unitario": 10}])
+        self.mov(tipo="saida", motivo="Venda", forma_pagamento="Dinheiro", itens=[{"produto_id": p["id"], "quantidade": 2}])
+        self.adm.req("POST", "/api/caixa/movimento", {"tipo": "sangria", "valor": 50})
+        st, r = self.adm.req("GET", "/api/caixa")
+        # 100 de troco + 60 vendidos - 20 da compra paga em "Outro" (não conta) - 50 de sangria
+        self.assertAlmostEqual(r["atual"]["esperado_dinheiro"], 110)
+        st, fechado = self.adm.req("POST", "/api/caixa/fechar", {"saldo_informado": 105})
+        self.assertEqual((fechado["saldo_esperado"], fechado["saldo_informado"]), (110, 105))
+        # com caixa obrigatório, venda sem caixa aberto é recusada
+        self.adm.req("PUT", "/api/config", {"exigir_caixa": "1"})
+        self.mov(esperado=400, tipo="saida", motivo="Venda", forma_pagamento="PIX",
+                 itens=[{"produto_id": p["id"], "quantidade": 1}])
+        self.adm.req("PUT", "/api/config", {"exigir_caixa": "0"})
+
     def test_estatico_sem_travessia(self):
         st, _ = self.adm.req("GET", "/../servidor.py")
         self.assertEqual(st, 404)

@@ -38,9 +38,19 @@ MOTIVOS = {
     "entrada": ["Compra", "Devolução de cliente", "Troca (aparelho recebido)",
                 "Retorno de garantia", "Ajuste de inventário", "Outro"],
     "saida": ["Venda", "Devolução ao fornecedor", "Perda/Avaria", "Envio para garantia",
-              "Uso interno", "Ajuste de inventário", "Outro"],
+              "Uso interno", "Ajuste de inventário", "Ordem de serviço", "Outro"],
 }
 MOTIVOS_ADMIN = ["Ajuste de inventário"]
+MOTIVOS_INTERNOS = ["Ordem de serviço"]  # gerados pelo sistema, não lançados à mão
+CATEGORIAS_FIN = {
+    "receber": ["Venda de produtos", "Serviços (OS)", "Outras receitas"],
+    "pagar": ["Compra de mercadorias", "Aluguel", "Energia / água / internet", "Salários e comissões",
+              "Impostos e taxas", "Taxas de cartão", "Marketing", "Manutenção", "Outras despesas"],
+}
+STATUS_OS = ["Aberta", "Em análise", "Aguardando aprovação", "Aprovada", "Aguardando peça", "Em reparo",
+             "Pronta para retirada", "Entregue", "Cancelada"]
+STATUS_OS_FINAIS = ["Entregue", "Cancelada"]
+STATUS_ORC = ["aberto", "aprovado", "recusado", "convertido"]
 PAGAMENTOS = ["Dinheiro", "PIX", "Cartão de débito", "Cartão de crédito", "Crediário", "Outro"]
 
 SCHEMA = """
@@ -127,6 +137,112 @@ CREATE TABLE IF NOT EXISTS imeis (
     atualizado_em TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_imeis_prod ON imeis(produto_id, status);
+CREATE TABLE IF NOT EXISTS ordens_servico (
+    id INTEGER PRIMARY KEY,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    tecnico TEXT,
+    aparelho TEXT NOT NULL,
+    imei TEXT, cor TEXT, senha_desbloqueio TEXT, acessorios TEXT,
+    defeito TEXT NOT NULL,
+    laudo TEXT,
+    status TEXT NOT NULL DEFAULT 'Aberta',
+    previsao TEXT,
+    garantia_dias INTEGER NOT NULL DEFAULT 90,
+    valor_servicos REAL NOT NULL DEFAULT 0,
+    valor_pecas REAL NOT NULL DEFAULT 0,
+    desconto REAL NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0,
+    forma_pagamento TEXT,
+    observacao TEXT,
+    entrada_em TEXT NOT NULL,
+    atualizado_em TEXT NOT NULL,
+    entregue_em TEXT,
+    movimentacao_id INTEGER REFERENCES movimentacoes(id)
+);
+CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico(status);
+CREATE TABLE IF NOT EXISTS os_servicos (
+    id INTEGER PRIMARY KEY,
+    os_id INTEGER NOT NULL REFERENCES ordens_servico(id),
+    descricao TEXT NOT NULL,
+    valor REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS os_pecas (
+    id INTEGER PRIMARY KEY,
+    os_id INTEGER NOT NULL REFERENCES ordens_servico(id),
+    produto_id INTEGER NOT NULL REFERENCES produtos(id),
+    quantidade INTEGER NOT NULL CHECK (quantidade > 0),
+    valor_unitario REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS os_historico (
+    id INTEGER PRIMARY KEY,
+    os_id INTEGER NOT NULL REFERENCES ordens_servico(id),
+    data TEXT NOT NULL,
+    status TEXT NOT NULL,
+    nota TEXT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id)
+);
+CREATE TABLE IF NOT EXISTS orcamentos (
+    id INTEGER PRIMARY KEY,
+    cliente_id INTEGER REFERENCES clientes(id),
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    data TEXT NOT NULL,
+    validade TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'aberto',
+    subtotal REAL NOT NULL DEFAULT 0,
+    desconto REAL NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0,
+    observacao TEXT,
+    movimentacao_id INTEGER REFERENCES movimentacoes(id)
+);
+CREATE TABLE IF NOT EXISTS orcamento_itens (
+    id INTEGER PRIMARY KEY,
+    orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id),
+    produto_id INTEGER NOT NULL REFERENCES produtos(id),
+    quantidade INTEGER NOT NULL CHECK (quantidade > 0),
+    valor_unitario REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS financeiro (
+    id INTEGER PRIMARY KEY,
+    tipo TEXT NOT NULL CHECK (tipo IN ('receber', 'pagar')),
+    descricao TEXT NOT NULL,
+    categoria TEXT NOT NULL,
+    valor REAL NOT NULL CHECK (valor > 0),
+    vencimento TEXT NOT NULL,
+    pago_em TEXT,
+    forma_pagamento TEXT,
+    parcela TEXT,
+    cliente_id INTEGER REFERENCES clientes(id),
+    fornecedor_id INTEGER REFERENCES fornecedores(id),
+    movimentacao_id INTEGER REFERENCES movimentacoes(id),
+    os_id INTEGER REFERENCES ordens_servico(id),
+    observacao TEXT,
+    cancelado INTEGER NOT NULL DEFAULT 0,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    criado_em TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fin_venc ON financeiro(tipo, vencimento);
+CREATE INDEX IF NOT EXISTS idx_fin_pago ON financeiro(pago_em);
+CREATE TABLE IF NOT EXISTS caixas (
+    id INTEGER PRIMARY KEY,
+    aberto_em TEXT NOT NULL,
+    aberto_por INTEGER NOT NULL REFERENCES usuarios(id),
+    saldo_inicial REAL NOT NULL DEFAULT 0,
+    fechado_em TEXT,
+    fechado_por INTEGER REFERENCES usuarios(id),
+    saldo_esperado REAL,
+    saldo_informado REAL,
+    observacao TEXT
+);
+CREATE TABLE IF NOT EXISTS caixa_movimentos (
+    id INTEGER PRIMARY KEY,
+    caixa_id INTEGER NOT NULL REFERENCES caixas(id),
+    tipo TEXT NOT NULL CHECK (tipo IN ('suprimento', 'sangria')),
+    valor REAL NOT NULL CHECK (valor > 0),
+    descricao TEXT,
+    data TEXT NOT NULL,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id)
+);
 """
 
 CONFIG_PADRAO = {
@@ -135,6 +251,13 @@ CONFIG_PADRAO = {
     "endereco": "",
     "telefone": "",
     "rodape_recibo": "Obrigado pela preferência! Garantia conforme termo do produto.",
+    "exigir_caixa": "0",
+    "saldo_inicial": "0",
+    "garantia_os_dias": "90",
+    "validade_orcamento_dias": "7",
+    "termo_os": ("A garantia cobre apenas o serviço executado e as peças trocadas. Aparelhos não retirados "
+                 "em 90 dias após o aviso de conclusão poderão ser descartados. A loja não se responsabiliza "
+                 "por dados do aparelho; faça backup antes de deixar o aparelho."),
 }
 
 ESCRITA = threading.Lock()  # SQLite aceita um escritor por vez
@@ -261,6 +384,9 @@ def inicializar_banco(caminho, avisar=True):
     con = conectar(caminho)
     con.execute("PRAGMA journal_mode = WAL")
     con.executescript(SCHEMA)
+    cols = {r[1] for r in con.execute("PRAGMA table_info(movimentacoes)")}
+    if "parcelas" not in cols:  # migração de bancos criados na versão anterior
+        con.execute("ALTER TABLE movimentacoes ADD COLUMN parcelas INTEGER NOT NULL DEFAULT 1")
     for k, v in CONFIG_PADRAO.items():
         con.execute("INSERT OR IGNORE INTO config (chave, valor) VALUES (?, ?)", (k, v))
     if not con.execute("SELECT 1 FROM usuarios").fetchone():
@@ -365,8 +491,10 @@ def trocar_minha_senha(c):
 @rota("GET", "/api/meta")
 def meta(c):
     cfg = {r["chave"]: r["valor"] for r in c.db.execute("SELECT * FROM config")}
+    caixa = um(c.db, "SELECT id, aberto_em FROM caixas WHERE fechado_em IS NULL")
     return {"categorias": CATEGORIAS, "condicoes": CONDICOES, "motivos": MOTIVOS,
-            "motivos_admin": MOTIVOS_ADMIN, "pagamentos": PAGAMENTOS, "config": cfg}
+            "motivos_admin": MOTIVOS_ADMIN, "motivos_internos": MOTIVOS_INTERNOS, "pagamentos": PAGAMENTOS,
+            "categorias_fin": CATEGORIAS_FIN, "status_os": STATUS_OS, "config": cfg, "caixa": caixa}
 
 
 @rota("PUT", "/api/config", "admin")
@@ -615,9 +743,54 @@ def rastrear_imei(c):
 
 # ---- movimentações (entradas e saídas)
 
-def registrar_movimentacao(db, usuario, b, data=None):
+def somar_meses(d, n):
+    m = d.month - 1 + n
+    ano, mes = d.year + m // 12, m % 12 + 1
+    ultimo = (dt.date(ano + (mes == 12), mes % 12 + 1, 1) - dt.timedelta(days=1)).day
+    return dt.date(ano, mes, min(d.day, ultimo))
+
+
+def gerar_financeiro(db, usuario, tipo, descricao, categoria, total, forma, parcelas, primeiro, pago_em,
+                     cliente_id=None, fornecedor_id=None, movimentacao_id=None, os_id=None, observacao=""):
+    """Cria o lançamento (ou as parcelas) em contas a receber / a pagar."""
+    base = round(total / parcelas, 2)
+    for n in range(parcelas):
+        valor = round(total - base * (parcelas - 1), 2) if n == parcelas - 1 else base
+        db.execute(
+            """INSERT INTO financeiro (tipo, descricao, categoria, valor, vencimento, pago_em, forma_pagamento,
+               parcela, cliente_id, fornecedor_id, movimentacao_id, os_id, observacao, usuario_id, criado_em)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (tipo, descricao, categoria, valor, somar_meses(primeiro, n).isoformat(), pago_em, forma,
+             f"{n + 1}/{parcelas}" if parcelas > 1 else None, cliente_id, fornecedor_id, movimentacao_id,
+             os_id, observacao, usuario["id"], agora()))
+
+
+def ler_condicao(b, data_base, a_prazo):
+    """Parcelas e 1º vencimento de uma venda a prazo ou compra a prazo."""
+    parcelas = inteiro(b.get("parcelas") or 1, "parcelas", 1, 48)
+    if not a_prazo:
+        return parcelas, data_base
+    primeiro = b.get("primeiro_vencimento")
+    primeiro = dt.date.fromisoformat(data_iso(primeiro, "1º vencimento")) if primeiro else data_base + dt.timedelta(days=30)
+    return parcelas, primeiro
+
+
+def caixa_aberto(db):
+    return um(db, "SELECT * FROM caixas WHERE fechado_em IS NULL ORDER BY id DESC LIMIT 1")
+
+
+def config(db, chave):
+    r = db.execute("SELECT valor FROM config WHERE chave = ?", (chave,)).fetchone()
+    return r[0] if r else CONFIG_PADRAO.get(chave, "")
+
+
+def registrar_movimentacao(db, usuario, b, data=None, interno=False, depois=None):
+    """Grava entrada/saída, atualiza estoque, IMEIs e financeiro numa única transação.
+    `depois(db, mid, total)` roda dentro da mesma transação (usado por OS e orçamentos)."""
     tipo = opcao(b.get("tipo"), "tipo", list(MOTIVOS))
     motivo = opcao(b.get("motivo"), "motivo", MOTIVOS[tipo])
+    if motivo in MOTIVOS_INTERNOS and not interno:
+        raise Erro("Este motivo é gerado automaticamente pelo sistema.")
     if motivo in MOTIVOS_ADMIN and usuario["perfil"] != "admin":
         raise Erro("Apenas administradores podem lançar ajustes de inventário.", 403)
     venda = tipo == "saida" and motivo == "Venda"
@@ -636,6 +809,16 @@ def registrar_movimentacao(db, usuario, b, data=None):
     forma = opcao(b.get("forma_pagamento"), "forma de pagamento", PAGAMENTOS) if venda else None
     documento = texto(b.get("documento"), "documento/nota", maximo=60)
     observacao = texto(b.get("observacao"), "observação", maximo=1000)
+    momento = data or agora()
+    dia_base = dt.date.fromisoformat(momento[:10])
+    compra = tipo == "entrada" and motivo == "Compra"
+    compra_a_prazo = compra and b.get("condicao_pagamento") == "a_prazo"
+    parcelas, primeiro = ler_condicao(b, dia_base, forma == "Crediário" or compra_a_prazo)
+    forma_compra = opcao(b.get("forma_pagamento") or "Outro", "forma de pagamento", PAGAMENTOS) if compra else None
+    if forma == "Crediário" and not cliente_id:
+        raise Erro("Venda no crediário precisa de um cliente identificado.")
+    if venda and not data and config(db, "exigir_caixa") == "1" and not caixa_aberto(db):
+        raise Erro("Abra o caixa antes de registrar vendas (menu Financeiro → Caixa).")
 
     with ESCRITA:
         db.execute("BEGIN IMMEDIATE")
@@ -676,13 +859,12 @@ def registrar_movimentacao(db, usuario, b, data=None):
             if desconto > subtotal:
                 raise Erro("O desconto não pode ser maior que o subtotal.")
             total = round(subtotal - desconto, 2)
-            momento = data or agora()
             cur = db.execute(
                 """INSERT INTO movimentacoes (tipo, motivo, data, usuario_id, fornecedor_id, cliente_id,
-                   forma_pagamento, documento, subtotal, desconto, total, observacao)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (tipo, motivo, momento, usuario["id"], fornecedor_id, cliente_id, forma, documento,
-                 subtotal, desconto, total, observacao))
+                   forma_pagamento, documento, subtotal, desconto, total, observacao, parcelas)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (tipo, motivo, momento, usuario["id"], fornecedor_id, cliente_id, forma or forma_compra, documento,
+                 subtotal, desconto, total, observacao, parcelas))
             mid = cur.lastrowid
             for p, qtd, valor, lista in prontos:
                 atual = um(db, "SELECT estoque_atual, preco_custo FROM produtos WHERE id = ?", (p["id"],))
@@ -710,6 +892,18 @@ def registrar_movimentacao(db, usuario, b, data=None):
                 db.execute(
                     """INSERT INTO itens (movimentacao_id, produto_id, quantidade, valor_unitario, custo_unitario, imeis)
                        VALUES (?,?,?,?,?,?)""", (mid, p["id"], qtd, valor, custo, json.dumps(lista)))
+            if venda and total > 0:
+                crediario = forma == "Crediário"
+                gerar_financeiro(db, usuario, "receber", f"Venda #{mid}", "Venda de produtos", total, forma,
+                                 parcelas if crediario else 1, primeiro, None if crediario else momento,
+                                 cliente_id=cliente_id, movimentacao_id=mid)
+            elif compra and total > 0 and b.get("gerar_financeiro", True) is not False:
+                gerar_financeiro(db, usuario, "pagar", f"Compra #{mid}" + (f" ({documento})" if documento else ""),
+                                 "Compra de mercadorias", total, forma_compra, parcelas if compra_a_prazo else 1,
+                                 primeiro, None if compra_a_prazo else momento,
+                                 fornecedor_id=fornecedor_id, movimentacao_id=mid)
+            if depois:
+                depois(db, mid, total)
             db.commit()
         except Exception:
             db.rollback()
@@ -731,12 +925,24 @@ def carregar_movimentacao(db, mid):
            JOIN produtos p ON p.id = i.produto_id WHERE i.movimentacao_id = ? ORDER BY i.id""", (mid,)))
     for i in m["itens"]:
         i["imeis"] = json.loads(i["imeis"])
+    m["financeiro"] = dicts(db.execute(
+        "SELECT id, tipo, valor, vencimento, pago_em, parcela, forma_pagamento, cancelado FROM financeiro "
+        "WHERE movimentacao_id = ? ORDER BY vencimento, id", (mid,)))
     return m
 
 
 @rota("POST", "/api/movimentacoes")
 def criar_movimentacao(c):
-    return carregar_movimentacao(c.db, registrar_movimentacao(c.db, c.usuario, c.corpo))
+    depois = None
+    oid = inteiro(c.corpo.get("orcamento_id"), "orçamento") or None
+    if oid:
+        o = um(c.db, "SELECT * FROM orcamentos WHERE id = ?", (oid,))
+        if not o or o["status"] in ("convertido", "recusado"):
+            raise Erro("Orçamento não encontrado, já convertido ou recusado.")
+
+        def depois(db, mid, total):
+            db.execute("UPDATE orcamentos SET status = 'convertido', movimentacao_id = ? WHERE id = ?", (mid, oid))
+    return carregar_movimentacao(c.db, registrar_movimentacao(c.db, c.usuario, c.corpo, depois=depois))
 
 
 @rota("GET", "/api/movimentacoes")
@@ -778,41 +984,698 @@ def cancelar_movimentacao(c):
     mid = int(c.params[0])
     justificativa = texto(c.corpo.get("motivo"), "motivo do cancelamento", True, 300)
     m = carregar_movimentacao(c.db, mid)
+    if m["motivo"] in MOTIVOS_INTERNOS:
+        raise Erro("Esta saída veio de uma ordem de serviço: cancele pela própria OS.")
+    with ESCRITA:
+        c.db.execute("BEGIN IMMEDIATE")
+        try:
+            estornar_movimentacao(c.db, c.usuario, m, justificativa)
+            c.db.commit()
+        except Exception:
+            c.db.rollback()
+            raise
+    return carregar_movimentacao(c.db, mid)
+
+
+def estornar_movimentacao(db, usuario, m, justificativa):
+    """Desfaz estoque, IMEIs e financeiro de uma movimentação. Roda dentro de uma transação aberta."""
+    mid = m["id"]
     if m["cancelada"]:
         raise Erro("Esta movimentação já foi cancelada.")
-    db = c.db
+    for i in m["itens"]:
+        if m["tipo"] == "entrada":
+            p = um(db, "SELECT estoque_atual FROM produtos WHERE id = ?", (i["produto_id"],))
+            if p["estoque_atual"] < i["quantidade"]:
+                raise Erro(f"Não dá para cancelar: parte de {i['produto_nome']} já saiu do estoque.")
+            for imei in i["imeis"]:
+                reg = um(db, "SELECT * FROM imeis WHERE imei = ?", (imei,))
+                if not reg or reg["status"] != "disponivel" or reg["entrada_id"] != mid:
+                    raise Erro(f"Não dá para cancelar: o IMEI {imei} já saiu do estoque.")
+                db.execute("UPDATE imeis SET status = 'cancelado', atualizado_em = ? WHERE imei = ?",
+                           (agora(), imei))
+            db.execute("UPDATE produtos SET estoque_atual = estoque_atual - ? WHERE id = ?",
+                       (i["quantidade"], i["produto_id"]))
+        else:
+            for imei in i["imeis"]:
+                reg = um(db, "SELECT * FROM imeis WHERE imei = ?", (imei,))
+                if not reg or reg["saida_id"] != mid or reg["status"] == "disponivel":
+                    raise Erro(f"Não dá para cancelar: o IMEI {imei} teve movimentação posterior.")
+                db.execute("UPDATE imeis SET status = 'disponivel', saida_id = NULL, atualizado_em = ? "
+                           "WHERE imei = ?", (agora(), imei))
+            db.execute("UPDATE produtos SET estoque_atual = estoque_atual + ? WHERE id = ?",
+                       (i["quantidade"], i["produto_id"]))
+    db.execute("""UPDATE movimentacoes SET cancelada = 1, cancelada_em = ?, cancelada_por = ?,
+                  motivo_cancelamento = ? WHERE id = ?""", (agora(), usuario["id"], justificativa, mid))
+    db.execute("UPDATE financeiro SET cancelado = 1 WHERE movimentacao_id = ?", (mid,))
+    db.execute("UPDATE orcamentos SET status = 'aprovado', movimentacao_id = NULL WHERE movimentacao_id = ?",
+               (mid,))
+
+
+# ---- ordens de serviço (assistência técnica)
+
+def carregar_os(db, oid):
+    o = um(db, """SELECT o.*, c.nome AS cliente_nome, c.telefone AS cliente_telefone, c.documento AS cliente_documento,
+                         u.nome AS usuario_nome
+                  FROM ordens_servico o JOIN clientes c ON c.id = o.cliente_id
+                  JOIN usuarios u ON u.id = o.usuario_id WHERE o.id = ?""", (oid,))
+    if not o:
+        raise Erro("Ordem de serviço não encontrada.", 404)
+    o["servicos"] = dicts(db.execute("SELECT * FROM os_servicos WHERE os_id = ? ORDER BY id", (oid,)))
+    o["pecas"] = dicts(db.execute(
+        """SELECT op.*, p.nome AS produto_nome, p.estoque_atual FROM os_pecas op
+           JOIN produtos p ON p.id = op.produto_id WHERE op.os_id = ? ORDER BY op.id""", (oid,)))
+    o["historico"] = dicts(db.execute(
+        """SELECT h.*, u.nome AS usuario_nome FROM os_historico h JOIN usuarios u ON u.id = h.usuario_id
+           WHERE h.os_id = ? ORDER BY h.id""", (oid,)))
+    o["financeiro"] = dicts(db.execute("SELECT * FROM financeiro WHERE os_id = ? ORDER BY vencimento", (oid,)))
+    return o
+
+
+def ler_os(db, b):
+    cliente_id = inteiro(b.get("cliente_id"), "cliente")
+    if not db.execute("SELECT 1 FROM clientes WHERE id = ?", (cliente_id,)).fetchone():
+        raise Erro("Escolha o cliente da ordem de serviço.")
+    imei = re.sub(r"\D", "", str(b.get("imei") or ""))
+    if imei and not imei_valido(imei):
+        raise Erro("IMEI inválido. Confira os 15 dígitos (ou deixe em branco).")
+    previsao = b.get("previsao")
+    servicos = []
+    for s_ in b.get("servicos") or []:
+        desc = texto(s_.get("descricao"), "descrição do serviço", maximo=200)
+        if desc:
+            servicos.append((desc, dinheiro(s_.get("valor"), f"valor de {desc}")))
+    pecas = []
+    for p_ in b.get("pecas") or []:
+        p = um(db, "SELECT * FROM produtos WHERE id = ?", (inteiro(p_.get("produto_id"), "peça"),))
+        if not p:
+            raise Erro("Peça não encontrada.")
+        if p["controla_imei"]:
+            raise Erro(f"{p['nome']} é controlado por IMEI e não pode ser usado como peça.")
+        pecas.append((p["id"], inteiro(p_.get("quantidade") or 1, f"quantidade de {p['nome']}", 1, 1000),
+                      dinheiro(p_.get("valor_unitario", p["preco_venda"]), f"valor de {p['nome']}")))
+    v_serv = round(sum(v for _, v in servicos), 2)
+    v_pecas = round(sum(q * v for _, q, v in pecas), 2)
+    desconto = dinheiro(b.get("desconto"), "desconto")
+    if desconto > v_serv + v_pecas:
+        raise Erro("O desconto não pode ser maior que o total da OS.")
+    dados = {
+        "cliente_id": cliente_id,
+        "tecnico": texto(b.get("tecnico"), "técnico", maximo=80),
+        "aparelho": texto(b.get("aparelho"), "aparelho", True, 120),
+        "imei": imei, "cor": texto(b.get("cor"), "cor", maximo=40),
+        "senha_desbloqueio": texto(b.get("senha_desbloqueio"), "senha/padrão", maximo=60),
+        "acessorios": texto(b.get("acessorios"), "acessórios", maximo=300),
+        "defeito": texto(b.get("defeito"), "defeito relatado", True, 1000),
+        "laudo": texto(b.get("laudo"), "laudo técnico", maximo=2000),
+        "previsao": data_iso(previsao, "previsão") if previsao else None,
+        "garantia_dias": inteiro(b.get("garantia_dias") if b.get("garantia_dias") not in (None, "") else 90,
+                                 "garantia (dias)", 0, 3650),
+        "observacao": texto(b.get("observacao"), "observação", maximo=1000),
+        "valor_servicos": v_serv, "valor_pecas": v_pecas, "desconto": desconto,
+        "total": round(v_serv + v_pecas - desconto, 2),
+    }
+    return dados, servicos, pecas
+
+
+def salvar_itens_os(db, oid, servicos, pecas):
+    db.execute("DELETE FROM os_servicos WHERE os_id = ?", (oid,))
+    db.execute("DELETE FROM os_pecas WHERE os_id = ?", (oid,))
+    db.executemany("INSERT INTO os_servicos (os_id, descricao, valor) VALUES (?,?,?)",
+                   [(oid, d, v) for d, v in servicos])
+    db.executemany("INSERT INTO os_pecas (os_id, produto_id, quantidade, valor_unitario) VALUES (?,?,?,?)",
+                   [(oid, p, q, v) for p, q, v in pecas])
+
+
+@rota("GET", "/api/os")
+def listar_os(c):
+    where, args = [], []
+    st = c.q("status")
+    if st == "abertas":
+        where.append("o.status NOT IN ('Entregue', 'Cancelada')")
+    elif st:
+        where.append("o.status = ?")
+        args.append(st)
+    if c.q("inicio") or c.q("fim"):
+        inicio, fim = periodo(c)
+        where.append("date(o.entrada_em) BETWEEN ? AND ?")
+        args += [inicio, fim]
+    if c.q("q"):
+        like = f"%{c.q('q')}%"
+        where.append("(c.nome LIKE ? OR o.aparelho LIKE ? OR o.imei LIKE ? OR CAST(o.id AS TEXT) = ? OR c.telefone LIKE ?)")
+        args += [like, like, like, c.q("q"), like]
+    return dicts(c.db.execute(
+        f"""SELECT o.id, o.status, o.aparelho, o.imei, o.defeito, o.tecnico, o.previsao, o.total, o.entrada_em,
+                   o.entregue_em, c.nome AS cliente_nome, c.telefone AS cliente_telefone
+            FROM ordens_servico o JOIN clientes c ON c.id = o.cliente_id
+            {"WHERE " + " AND ".join(where) if where else ""} ORDER BY o.id DESC LIMIT 1000""", args))
+
+
+@rota("GET", r"/api/os/(\d+)")
+def detalhe_os(c):
+    return carregar_os(c.db, int(c.params[0]))
+
+
+@rota("POST", "/api/os")
+def criar_os(c):
+    dados, servicos, pecas = ler_os(c.db, c.corpo)
     with ESCRITA:
-        db.execute("BEGIN IMMEDIATE")
         try:
-            for i in m["itens"]:
-                if m["tipo"] == "entrada":
-                    p = um(db, "SELECT estoque_atual FROM produtos WHERE id = ?", (i["produto_id"],))
-                    if p["estoque_atual"] < i["quantidade"]:
-                        raise Erro(f"Não dá para cancelar: parte de {i['produto_nome']} já saiu do estoque.")
-                    for imei in i["imeis"]:
-                        reg = um(db, "SELECT * FROM imeis WHERE imei = ?", (imei,))
-                        if not reg or reg["status"] != "disponivel" or reg["entrada_id"] != mid:
-                            raise Erro(f"Não dá para cancelar: o IMEI {imei} já saiu do estoque.")
-                        db.execute("UPDATE imeis SET status = 'cancelado', atualizado_em = ? WHERE imei = ?",
-                                   (agora(), imei))
-                    db.execute("UPDATE produtos SET estoque_atual = estoque_atual - ? WHERE id = ?",
-                               (i["quantidade"], i["produto_id"]))
-                else:
-                    for imei in i["imeis"]:
-                        reg = um(db, "SELECT * FROM imeis WHERE imei = ?", (imei,))
-                        if not reg or reg["saida_id"] != mid or reg["status"] == "disponivel":
-                            raise Erro(f"Não dá para cancelar: o IMEI {imei} teve movimentação posterior.")
-                        db.execute("UPDATE imeis SET status = 'disponivel', saida_id = NULL, atualizado_em = ? "
-                                   "WHERE imei = ?", (agora(), imei))
-                    db.execute("UPDATE produtos SET estoque_atual = estoque_atual + ? WHERE id = ?",
-                               (i["quantidade"], i["produto_id"]))
-            db.execute("""UPDATE movimentacoes SET cancelada = 1, cancelada_em = ?, cancelada_por = ?,
-                          motivo_cancelamento = ? WHERE id = ?""", (agora(), c.usuario["id"], justificativa, mid))
-            db.commit()
+            cur = c.db.execute(
+                f"""INSERT INTO ordens_servico ({", ".join(dados)}, usuario_id, status, entrada_em, atualizado_em)
+                    VALUES ({", ".join("?" * len(dados))}, ?, 'Aberta', ?, ?)""",
+                (*dados.values(), c.usuario["id"], agora(), agora()))
+            oid = cur.lastrowid
+            salvar_itens_os(c.db, oid, servicos, pecas)
+            c.db.execute("INSERT INTO os_historico (os_id, data, status, nota, usuario_id) VALUES (?,?,?,?,?)",
+                         (oid, agora(), "Aberta", "Aparelho recebido", c.usuario["id"]))
+            c.db.commit()
         except Exception:
-            db.rollback()
+            c.db.rollback()
             raise
-    return carregar_movimentacao(db, mid)
+    return carregar_os(c.db, oid)
+
+
+@rota("PUT", r"/api/os/(\d+)")
+def editar_os(c):
+    oid = int(c.params[0])
+    atual = carregar_os(c.db, oid)
+    if atual["status"] in STATUS_OS_FINAIS:
+        raise Erro(f"OS {atual['status'].lower()} não pode ser alterada.")
+    dados, servicos, pecas = ler_os(c.db, c.corpo)
+    with ESCRITA:
+        try:
+            c.db.execute(f"UPDATE ordens_servico SET {', '.join(k + ' = ?' for k in dados)}, atualizado_em = ? "
+                         f"WHERE id = ?", (*dados.values(), agora(), oid))
+            salvar_itens_os(c.db, oid, servicos, pecas)
+            c.db.commit()
+        except Exception:
+            c.db.rollback()
+            raise
+    return carregar_os(c.db, oid)
+
+
+@rota("POST", r"/api/os/(\d+)/status")
+def status_os(c):
+    oid = int(c.params[0])
+    atual = carregar_os(c.db, oid)
+    if atual["status"] in STATUS_OS_FINAIS:
+        raise Erro(f"OS {atual['status'].lower()} não pode mudar de situação.")
+    novo = opcao(c.corpo.get("status"), "situação", [s for s in STATUS_OS if s not in STATUS_OS_FINAIS])
+    nota = texto(c.corpo.get("nota"), "anotação", maximo=500)
+    with ESCRITA:
+        c.db.execute("UPDATE ordens_servico SET status = ?, atualizado_em = ? WHERE id = ?", (novo, agora(), oid))
+        c.db.execute("INSERT INTO os_historico (os_id, data, status, nota, usuario_id) VALUES (?,?,?,?,?)",
+                     (oid, agora(), novo, nota, c.usuario["id"]))
+        c.db.commit()
+    return carregar_os(c.db, oid)
+
+
+@rota("POST", r"/api/os/(\d+)/entregar")
+def entregar_os(c):
+    """Entrega o aparelho: baixa as peças do estoque e lança o valor em contas a receber."""
+    oid = int(c.params[0])
+    o = carregar_os(c.db, oid)
+    if o["status"] in STATUS_OS_FINAIS:
+        raise Erro(f"Esta OS já está {o['status'].lower()}.")
+    b = c.corpo
+    forma = opcao(b.get("forma_pagamento"), "forma de pagamento", PAGAMENTOS) if o["total"] > 0 else None
+    momento = agora()
+    parcelas, primeiro = ler_condicao(b, dt.date.today(), forma == "Crediário")
+    if o["total"] > 0 and config(c.db, "exigir_caixa") == "1" and not caixa_aberto(c.db):
+        raise Erro("Abra o caixa antes de receber (menu Financeiro → Caixa).")
+    nota = texto(b.get("nota"), "anotação", maximo=500)
+
+    def finalizar(db, mid, _total):
+        if o["total"] > 0:
+            cred = forma == "Crediário"
+            gerar_financeiro(db, c.usuario, "receber", f"OS #{oid} — {o['aparelho']}", "Serviços (OS)", o["total"],
+                             forma, parcelas if cred else 1, primeiro, None if cred else momento,
+                             cliente_id=o["cliente_id"], movimentacao_id=mid, os_id=oid)
+        db.execute("""UPDATE ordens_servico SET status = 'Entregue', entregue_em = ?, forma_pagamento = ?,
+                      movimentacao_id = ?, atualizado_em = ? WHERE id = ?""", (momento, forma, mid, momento, oid))
+        db.execute("INSERT INTO os_historico (os_id, data, status, nota, usuario_id) VALUES (?,?,?,?,?)",
+                   (oid, momento, "Entregue", nota or "Aparelho entregue ao cliente", c.usuario["id"]))
+
+    if o["pecas"]:
+        registrar_movimentacao(c.db, c.usuario, {
+            "tipo": "saida", "motivo": "Ordem de serviço", "cliente_id": o["cliente_id"], "documento": f"OS #{oid}",
+            "itens": [{"produto_id": p["produto_id"], "quantidade": p["quantidade"],
+                       "valor_unitario": p["valor_unitario"]} for p in o["pecas"]]},
+            interno=True, depois=finalizar)
+    else:
+        with ESCRITA:
+            c.db.execute("BEGIN IMMEDIATE")
+            try:
+                finalizar(c.db, None, 0)
+                c.db.commit()
+            except Exception:
+                c.db.rollback()
+                raise
+    return carregar_os(c.db, oid)
+
+
+@rota("POST", r"/api/os/(\d+)/cancelar")
+def cancelar_os(c):
+    oid = int(c.params[0])
+    o = carregar_os(c.db, oid)
+    motivo = texto(c.corpo.get("motivo"), "motivo do cancelamento", True, 300)
+    if o["status"] == "Cancelada":
+        raise Erro("Esta OS já está cancelada.")
+    if o["status"] == "Entregue" and not c.admin:
+        raise Erro("Apenas administradores podem cancelar uma OS já entregue.", 403)
+    with ESCRITA:
+        c.db.execute("BEGIN IMMEDIATE")
+        try:
+            if o["movimentacao_id"]:
+                estornar_movimentacao(c.db, c.usuario, carregar_movimentacao(c.db, o["movimentacao_id"]),
+                                      f"Cancelamento da OS #{oid}: {motivo}")
+            c.db.execute("UPDATE financeiro SET cancelado = 1 WHERE os_id = ?", (oid,))
+            c.db.execute("UPDATE ordens_servico SET status = 'Cancelada', atualizado_em = ? WHERE id = ?",
+                         (agora(), oid))
+            c.db.execute("INSERT INTO os_historico (os_id, data, status, nota, usuario_id) VALUES (?,?,?,?,?)",
+                         (oid, agora(), "Cancelada", motivo, c.usuario["id"]))
+            c.db.commit()
+        except Exception:
+            c.db.rollback()
+            raise
+    return carregar_os(c.db, oid)
+
+
+# ---- orçamentos
+
+def carregar_orcamento(db, oid):
+    o = um(db, """SELECT o.*, c.nome AS cliente_nome, c.telefone AS cliente_telefone, c.documento AS cliente_documento,
+                         u.nome AS usuario_nome FROM orcamentos o JOIN usuarios u ON u.id = o.usuario_id
+                  LEFT JOIN clientes c ON c.id = o.cliente_id WHERE o.id = ?""", (oid,))
+    if not o:
+        raise Erro("Orçamento não encontrado.", 404)
+    o["itens"] = dicts(db.execute(
+        """SELECT i.*, p.nome AS produto_nome, p.estoque_atual, p.controla_imei FROM orcamento_itens i
+           JOIN produtos p ON p.id = i.produto_id WHERE i.orcamento_id = ? ORDER BY i.id""", (oid,)))
+    return o
+
+
+def ler_orcamento(db, b):
+    cliente_id = inteiro(b.get("cliente_id"), "cliente") or None
+    if cliente_id and not db.execute("SELECT 1 FROM clientes WHERE id = ?", (cliente_id,)).fetchone():
+        raise Erro("Cliente não encontrado.")
+    itens = []
+    for it in b.get("itens") or []:
+        p = um(db, "SELECT * FROM produtos WHERE id = ?", (inteiro(it.get("produto_id"), "produto"),))
+        if not p:
+            raise Erro("Produto não encontrado.")
+        itens.append((p["id"], inteiro(it.get("quantidade") or 1, f"quantidade de {p['nome']}", 1, 100_000),
+                      dinheiro(it.get("valor_unitario", p["preco_venda"]), f"valor de {p['nome']}")))
+    if not itens:
+        raise Erro("Adicione pelo menos um produto ao orçamento.")
+    subtotal = round(sum(q * v for _, q, v in itens), 2)
+    desconto = dinheiro(b.get("desconto"), "desconto")
+    if desconto > subtotal:
+        raise Erro("O desconto não pode ser maior que o subtotal.")
+    dias = inteiro(config(db, "validade_orcamento_dias") or 7, "validade", 0, 3650)
+    validade = data_iso(b.get("validade") or (dt.date.today() + dt.timedelta(days=dias)).isoformat(), "validade")
+    return {"cliente_id": cliente_id, "validade": validade, "subtotal": subtotal, "desconto": desconto,
+            "total": round(subtotal - desconto, 2),
+            "observacao": texto(b.get("observacao"), "observação", maximo=1000)}, itens
+
+
+@rota("GET", "/api/orcamentos")
+def listar_orcamentos(c):
+    where, args = [], []
+    if c.q("status"):
+        where.append("o.status = ?")
+        args.append(c.q("status"))
+    if c.q("q"):
+        like = f"%{c.q('q')}%"
+        where.append("(c.nome LIKE ? OR CAST(o.id AS TEXT) = ?)")
+        args += [like, c.q("q")]
+    return dicts(c.db.execute(
+        f"""SELECT o.id, o.data, o.validade, o.status, o.total, o.movimentacao_id, c.nome AS cliente_nome,
+                   u.nome AS usuario_nome,
+                   (SELECT GROUP_CONCAT(p.nome, ', ') FROM orcamento_itens i JOIN produtos p ON p.id = i.produto_id
+                    WHERE i.orcamento_id = o.id) AS produtos
+            FROM orcamentos o JOIN usuarios u ON u.id = o.usuario_id LEFT JOIN clientes c ON c.id = o.cliente_id
+            {"WHERE " + " AND ".join(where) if where else ""} ORDER BY o.id DESC LIMIT 1000""", args))
+
+
+@rota("GET", r"/api/orcamentos/(\d+)")
+def detalhe_orcamento(c):
+    return carregar_orcamento(c.db, int(c.params[0]))
+
+
+@rota("POST", "/api/orcamentos")
+def criar_orcamento(c):
+    d, itens = ler_orcamento(c.db, c.corpo)
+    with ESCRITA:
+        cur = c.db.execute(
+            f"""INSERT INTO orcamentos ({", ".join(d)}, usuario_id, data, status)
+                VALUES ({", ".join("?" * len(d))}, ?, ?, 'aberto')""", (*d.values(), c.usuario["id"], agora()))
+        c.db.executemany("INSERT INTO orcamento_itens (orcamento_id, produto_id, quantidade, valor_unitario) "
+                         "VALUES (?,?,?,?)", [(cur.lastrowid, *i) for i in itens])
+        c.db.commit()
+    return carregar_orcamento(c.db, cur.lastrowid)
+
+
+@rota("PUT", r"/api/orcamentos/(\d+)")
+def editar_orcamento(c):
+    oid = int(c.params[0])
+    if carregar_orcamento(c.db, oid)["status"] == "convertido":
+        raise Erro("Orçamento já convertido em venda não pode ser alterado.")
+    d, itens = ler_orcamento(c.db, c.corpo)
+    with ESCRITA:
+        c.db.execute(f"UPDATE orcamentos SET {', '.join(k + ' = ?' for k in d)} WHERE id = ?", (*d.values(), oid))
+        c.db.execute("DELETE FROM orcamento_itens WHERE orcamento_id = ?", (oid,))
+        c.db.executemany("INSERT INTO orcamento_itens (orcamento_id, produto_id, quantidade, valor_unitario) "
+                         "VALUES (?,?,?,?)", [(oid, *i) for i in itens])
+        c.db.commit()
+    return carregar_orcamento(c.db, oid)
+
+
+@rota("POST", r"/api/orcamentos/(\d+)/status")
+def status_orcamento(c):
+    oid = int(c.params[0])
+    if carregar_orcamento(c.db, oid)["status"] == "convertido":
+        raise Erro("Orçamento já convertido em venda.")
+    novo = opcao(c.corpo.get("status"), "situação", ["aberto", "aprovado", "recusado"])
+    with ESCRITA:
+        c.db.execute("UPDATE orcamentos SET status = ? WHERE id = ?", (novo, oid))
+        c.db.commit()
+    return carregar_orcamento(c.db, oid)
+
+
+# ---- financeiro: contas a pagar e a receber
+
+FIN_SELECT = """SELECT f.*, c.nome AS cliente_nome, fo.nome AS fornecedor_nome,
+                       CASE WHEN f.pago_em IS NOT NULL THEN 'pago'
+                            WHEN f.vencimento < date('now', 'localtime') THEN 'vencido' ELSE 'pendente' END AS situacao
+                FROM financeiro f LEFT JOIN clientes c ON c.id = f.cliente_id
+                LEFT JOIN fornecedores fo ON fo.id = f.fornecedor_id"""
+
+
+@rota("GET", "/api/financeiro", "admin")
+def listar_financeiro(c):
+    where, args = ["f.cancelado = 0"], []
+    if c.q("tipo"):
+        where.append("f.tipo = ?")
+        args.append(opcao(c.q("tipo"), "tipo", ["receber", "pagar"]))
+    st = c.q("situacao") or "abertos"
+    inicio, fim = periodo(c) if (c.q("inicio") or c.q("fim")) else (None, None)
+    if st == "pagos":
+        where.append("f.pago_em IS NOT NULL")
+        if inicio:
+            where.append("date(f.pago_em) BETWEEN ? AND ?")
+            args += [inicio, fim]
+    else:
+        if st == "abertos":
+            where.append("f.pago_em IS NULL")
+        elif st == "vencidos":
+            where.append("f.pago_em IS NULL AND f.vencimento < date('now', 'localtime')")
+        if inicio:
+            where.append("f.vencimento BETWEEN ? AND ?")
+            args += [inicio, fim]
+    if c.q("q"):
+        like = f"%{c.q('q')}%"
+        where.append("(f.descricao LIKE ? OR c.nome LIKE ? OR fo.nome LIKE ? OR f.categoria LIKE ?)")
+        args += [like] * 4
+    return dicts(c.db.execute(f"{FIN_SELECT} WHERE {' AND '.join(where)} ORDER BY "
+                              f"{'f.pago_em DESC' if st == 'pagos' else 'f.vencimento, f.id'} LIMIT 2000", args))
+
+
+@rota("POST", "/api/financeiro", "admin")
+def criar_financeiro(c):
+    b = c.corpo
+    tipo = opcao(b.get("tipo"), "tipo", ["receber", "pagar"])
+    valor = dinheiro(b.get("valor"), "valor")
+    if valor <= 0:
+        raise Erro("Informe o valor.")
+    venc = dt.date.fromisoformat(data_iso(b.get("vencimento") or dt.date.today().isoformat(), "vencimento"))
+    parcelas = inteiro(b.get("parcelas") or 1, "parcelas", 1, 120)
+    pago = b.get("pago") in (True, 1, "1", "true")
+    forma = opcao(b.get("forma_pagamento"), "forma de pagamento", PAGAMENTOS) if b.get("forma_pagamento") else None
+    cliente_id = inteiro(b.get("cliente_id"), "cliente") or None
+    fornecedor_id = inteiro(b.get("fornecedor_id"), "fornecedor") or None
+    total = round(valor * parcelas, 2) if b.get("repetir") in (True, 1, "1", "true") else valor
+    with ESCRITA:
+        gerar_financeiro(c.db, c.usuario, tipo, texto(b.get("descricao"), "descrição", True),
+                         opcao(b.get("categoria"), "categoria", CATEGORIAS_FIN[tipo]), total, forma, parcelas, venc,
+                         agora() if pago and parcelas == 1 else None, cliente_id=cliente_id,
+                         fornecedor_id=fornecedor_id, observacao=texto(b.get("observacao"), "observação", maximo=500))
+        c.db.commit()
+    return {"ok": True}
+
+
+def fin_editavel(db, fid):
+    f = um(db, "SELECT * FROM financeiro WHERE id = ?", (fid,))
+    if not f or f["cancelado"]:
+        raise Erro("Lançamento não encontrado.", 404)
+    return f
+
+
+@rota("PUT", r"/api/financeiro/(\d+)", "admin")
+def editar_financeiro(c):
+    fid = int(c.params[0])
+    f = fin_editavel(c.db, fid)
+    if f["pago_em"]:
+        raise Erro("Estorne a baixa antes de editar este lançamento.")
+    b = c.corpo
+    valor = dinheiro(b.get("valor", f["valor"]), "valor")
+    if valor <= 0:
+        raise Erro("Informe o valor.")
+    with ESCRITA:
+        c.db.execute("""UPDATE financeiro SET descricao = ?, categoria = ?, valor = ?, vencimento = ?, observacao = ?
+                        WHERE id = ?""",
+                     (texto(b.get("descricao", f["descricao"]), "descrição", True),
+                      opcao(b.get("categoria", f["categoria"]), "categoria", CATEGORIAS_FIN[f["tipo"]]), valor,
+                      data_iso(b.get("vencimento", f["vencimento"]), "vencimento"),
+                      texto(b.get("observacao", f["observacao"]), "observação", maximo=500), fid))
+        c.db.commit()
+    return um(c.db, f"{FIN_SELECT} WHERE f.id = ?", (fid,))
+
+
+@rota("POST", r"/api/financeiro/(\d+)/baixar", "admin")
+def baixar_financeiro(c):
+    fid = int(c.params[0])
+    f = fin_editavel(c.db, fid)
+    if f["pago_em"]:
+        raise Erro("Este lançamento já está quitado.")
+    dia = data_iso(c.corpo.get("data") or dt.date.today().isoformat(), "data do pagamento")
+    momento = agora() if dia == dt.date.today().isoformat() else f"{dia} 12:00:00"
+    forma = opcao(c.corpo.get("forma_pagamento") or f["forma_pagamento"] or "Dinheiro", "forma de pagamento",
+                  PAGAMENTOS)
+    with ESCRITA:
+        c.db.execute("UPDATE financeiro SET pago_em = ?, forma_pagamento = ? WHERE id = ?", (momento, forma, fid))
+        c.db.commit()
+    return um(c.db, f"{FIN_SELECT} WHERE f.id = ?", (fid,))
+
+
+@rota("POST", r"/api/financeiro/(\d+)/estornar", "admin")
+def estornar_financeiro(c):
+    fid = int(c.params[0])
+    fin_editavel(c.db, fid)
+    with ESCRITA:
+        c.db.execute("UPDATE financeiro SET pago_em = NULL WHERE id = ?", (fid,))
+        c.db.commit()
+    return um(c.db, f"{FIN_SELECT} WHERE f.id = ?", (fid,))
+
+
+@rota("DELETE", r"/api/financeiro/(\d+)", "admin")
+def excluir_financeiro(c):
+    f = fin_editavel(c.db, int(c.params[0]))
+    if f["movimentacao_id"] or f["os_id"]:
+        raise Erro("Este lançamento veio de uma venda, compra ou OS: cancele pela origem.")
+    with ESCRITA:
+        c.db.execute("UPDATE financeiro SET cancelado = 1 WHERE id = ?", (f["id"],))
+        c.db.commit()
+    return {"ok": True}
+
+
+@rota("GET", "/api/relatorios/financeiro", "admin")
+def relatorio_financeiro(c):
+    inicio, fim = periodo(c)
+    args = (inicio, fim)
+    realizado = {r["dia"]: r for r in c.db.execute(
+        """SELECT date(pago_em) AS dia, SUM(CASE WHEN tipo = 'receber' THEN valor ELSE 0 END) AS entradas,
+                  SUM(CASE WHEN tipo = 'pagar' THEN valor ELSE 0 END) AS saidas
+           FROM financeiro WHERE cancelado = 0 AND pago_em IS NOT NULL AND date(pago_em) BETWEEN ? AND ?
+           GROUP BY dia""", args)}
+    previsto = {r["dia"]: r for r in c.db.execute(
+        """SELECT vencimento AS dia, SUM(CASE WHEN tipo = 'receber' THEN valor ELSE 0 END) AS entradas,
+                  SUM(CASE WHEN tipo = 'pagar' THEN valor ELSE 0 END) AS saidas
+           FROM financeiro WHERE cancelado = 0 AND pago_em IS NULL AND vencimento BETWEEN ? AND ?
+           GROUP BY dia""", args)}
+    saldo_anterior = um(c.db, """SELECT COALESCE(SUM(CASE WHEN tipo = 'receber' THEN valor ELSE -valor END), 0) AS s
+                                 FROM financeiro WHERE cancelado = 0 AND pago_em IS NOT NULL
+                                 AND date(pago_em) < ?""", (inicio,))["s"]
+    try:
+        saldo_anterior += float(config(c.db, "saldo_inicial") or 0)
+    except ValueError:
+        pass
+    dias, saldo, d = [], saldo_anterior, dt.date.fromisoformat(inicio)
+    while d <= dt.date.fromisoformat(fim) and len(dias) < 1000:
+        k = d.isoformat()
+        r, p = realizado.get(k), previsto.get(k)
+        ent, sai = (r["entradas"], r["saidas"]) if r else (0, 0)
+        saldo += ent - sai
+        dias.append({"dia": k, "entradas": round(ent, 2), "saidas": round(sai, 2), "saldo": round(saldo, 2),
+                     "a_receber": round(p["entradas"], 2) if p else 0, "a_pagar": round(p["saidas"], 2) if p else 0})
+        d += dt.timedelta(days=1)
+    categorias = dicts(c.db.execute(
+        """SELECT tipo, categoria AS chave, COUNT(*) AS lancamentos, ROUND(SUM(valor), 2) AS valor
+           FROM financeiro WHERE cancelado = 0 AND pago_em IS NOT NULL AND date(pago_em) BETWEEN ? AND ?
+           GROUP BY tipo, categoria ORDER BY tipo DESC, valor DESC""", args))
+    receitas = sum(x["valor"] for x in categorias if x["tipo"] == "receber")
+    despesas = sum(x["valor"] for x in categorias if x["tipo"] == "pagar")
+    abertos = um(c.db, """SELECT
+            ROUND(COALESCE(SUM(CASE WHEN tipo = 'receber' THEN valor END), 0), 2) AS a_receber,
+            ROUND(COALESCE(SUM(CASE WHEN tipo = 'pagar' THEN valor END), 0), 2) AS a_pagar,
+            ROUND(COALESCE(SUM(CASE WHEN tipo = 'receber' AND vencimento < date('now','localtime') THEN valor END), 0), 2)
+              AS receber_vencido,
+            ROUND(COALESCE(SUM(CASE WHEN tipo = 'pagar' AND vencimento < date('now','localtime') THEN valor END), 0), 2)
+              AS pagar_vencido
+        FROM financeiro WHERE cancelado = 0 AND pago_em IS NULL""")
+    # DRE simplificado (regime de competência das vendas + despesas pagas no período)
+    vendas = resumo_vendas(c.db, inicio, fim)
+    os_ = um(c.db, """SELECT COUNT(*) AS qtd, COALESCE(SUM(total), 0) AS receita FROM ordens_servico
+                      WHERE status = 'Entregue' AND date(entregue_em) BETWEEN ? AND ?""", args)
+    custo_pecas = um(c.db, """SELECT COALESCE(SUM(i.quantidade * i.custo_unitario), 0) AS c FROM itens i
+                              JOIN movimentacoes m ON m.id = i.movimentacao_id
+                              WHERE m.motivo = 'Ordem de serviço' AND m.cancelada = 0
+                              AND date(m.data) BETWEEN ? AND ?""", args)["c"]
+    desp_operacionais = sum(x["valor"] for x in categorias
+                            if x["tipo"] == "pagar" and x["chave"] != "Compra de mercadorias")
+    receita_bruta = vendas["faturamento"] + os_["receita"]
+    lucro_bruto = receita_bruta - vendas["custo"] - custo_pecas
+    dre = [
+        {"linha": "Receita com vendas de produtos", "valor": vendas["faturamento"]},
+        {"linha": "Receita com serviços (OS entregues)", "valor": os_["receita"]},
+        {"linha": "(−) Custo das mercadorias vendidas", "valor": -vendas["custo"]},
+        {"linha": "(−) Custo das peças usadas em OS", "valor": -custo_pecas},
+        {"linha": "= Lucro bruto", "valor": lucro_bruto, "total": True},
+        {"linha": "(−) Despesas operacionais pagas", "valor": -desp_operacionais},
+        {"linha": "= Resultado do período", "valor": lucro_bruto - desp_operacionais, "total": True},
+    ]
+    for l_ in dre:
+        l_["valor"] = round(l_["valor"], 2)
+    return {"inicio": inicio, "fim": fim, "saldo_anterior": round(saldo_anterior, 2), "dias": dias,
+            "categorias": categorias, "receitas": round(receitas, 2), "despesas": round(despesas, 2),
+            "saldo_final": round(saldo, 2), "abertos": abertos, "dre": dre}
+
+
+@rota("GET", "/api/relatorios/os")
+def relatorio_os(c):
+    inicio, fim = periodo(c)
+    args = (inicio, fim)
+    return {
+        "inicio": inicio, "fim": fim,
+        "resumo": um(c.db, """SELECT COUNT(*) AS abertas_periodo,
+                SUM(CASE WHEN status = 'Entregue' THEN 1 ELSE 0 END) AS entregues,
+                SUM(CASE WHEN status = 'Cancelada' THEN 1 ELSE 0 END) AS canceladas
+                FROM ordens_servico WHERE date(entrada_em) BETWEEN ? AND ?""", args),
+        "faturamento": um(c.db, """SELECT COUNT(*) AS qtd, ROUND(COALESCE(SUM(total), 0), 2) AS total,
+                ROUND(COALESCE(SUM(valor_servicos), 0), 2) AS servicos, ROUND(COALESCE(SUM(valor_pecas), 0), 2) AS pecas,
+                ROUND(AVG(julianday(entregue_em) - julianday(entrada_em)), 1) AS prazo_medio
+                FROM ordens_servico WHERE status = 'Entregue' AND date(entregue_em) BETWEEN ? AND ?""", args),
+        "por_status": dicts(c.db.execute(
+            """SELECT status AS chave, COUNT(*) AS quantidade FROM ordens_servico
+               WHERE status NOT IN ('Entregue', 'Cancelada') GROUP BY status ORDER BY quantidade DESC""")),
+        "por_tecnico": dicts(c.db.execute(
+            """SELECT COALESCE(NULLIF(tecnico, ''), 'Sem técnico') AS chave, COUNT(*) AS quantidade,
+                      ROUND(SUM(total), 2) AS faturamento FROM ordens_servico
+               WHERE status = 'Entregue' AND date(entregue_em) BETWEEN ? AND ? GROUP BY chave
+               ORDER BY faturamento DESC""", args)),
+        "servicos": dicts(c.db.execute(
+            """SELECT s.descricao AS chave, COUNT(*) AS quantidade, ROUND(SUM(s.valor), 2) AS faturamento
+               FROM os_servicos s JOIN ordens_servico o ON o.id = s.os_id
+               WHERE o.status = 'Entregue' AND date(o.entregue_em) BETWEEN ? AND ?
+               GROUP BY s.descricao ORDER BY faturamento DESC LIMIT 50""", args)),
+    }
+
+
+# ---- caixa (abertura, sangria, suprimento e fechamento)
+
+def resumo_caixa(db, cx):
+    fim = cx["fechado_em"] or "9999-12-31"
+    args = (cx["aberto_em"], fim)
+    formas = dicts(db.execute(
+        """SELECT forma_pagamento AS chave,
+                  ROUND(SUM(CASE WHEN tipo = 'receber' THEN valor ELSE 0 END), 2) AS recebido,
+                  ROUND(SUM(CASE WHEN tipo = 'pagar' THEN valor ELSE 0 END), 2) AS pago
+           FROM financeiro WHERE cancelado = 0 AND pago_em >= ? AND pago_em <= ?
+           GROUP BY forma_pagamento ORDER BY recebido DESC""", args))
+    movs = dicts(db.execute(
+        """SELECT cm.*, u.nome AS usuario_nome FROM caixa_movimentos cm JOIN usuarios u ON u.id = cm.usuario_id
+           WHERE cm.caixa_id = ? ORDER BY cm.id""", (cx["id"],)))
+    din = next((f for f in formas if f["chave"] == "Dinheiro"), {"recebido": 0, "pago": 0})
+    sup = sum(m["valor"] for m in movs if m["tipo"] == "suprimento")
+    san = sum(m["valor"] for m in movs if m["tipo"] == "sangria")
+    esperado = round(cx["saldo_inicial"] + din["recebido"] - din["pago"] + sup - san, 2)
+    lanc = dicts(db.execute(
+        f"""{FIN_SELECT} WHERE f.cancelado = 0 AND f.pago_em >= ? AND f.pago_em <= ? ORDER BY f.pago_em""", args))
+    return {**cx, "formas": formas, "movimentos": movs, "suprimentos": round(sup, 2), "sangrias": round(san, 2),
+            "dinheiro_recebido": din["recebido"], "dinheiro_pago": din["pago"], "esperado_dinheiro": esperado,
+            "total_recebido": round(sum(f["recebido"] for f in formas), 2), "lancamentos": lanc}
+
+
+@rota("GET", "/api/caixa")
+def ver_caixa(c):
+    cx = caixa_aberto(c.db)
+    return {"atual": resumo_caixa(c.db, cx) if cx else None,
+            "historico": dicts(c.db.execute(
+                """SELECT cx.*, ua.nome AS aberto_por_nome, uf.nome AS fechado_por_nome FROM caixas cx
+                   JOIN usuarios ua ON ua.id = cx.aberto_por LEFT JOIN usuarios uf ON uf.id = cx.fechado_por
+                   ORDER BY cx.id DESC LIMIT 60"""))}
+
+
+@rota("GET", r"/api/caixa/(\d+)")
+def ver_caixa_id(c):
+    cx = um(c.db, "SELECT * FROM caixas WHERE id = ?", (int(c.params[0]),))
+    if not cx:
+        raise Erro("Caixa não encontrado.", 404)
+    return resumo_caixa(c.db, cx)
+
+
+@rota("POST", "/api/caixa/abrir")
+def abrir_caixa(c):
+    with ESCRITA:
+        if caixa_aberto(c.db):
+            raise Erro("Já existe um caixa aberto.")
+        c.db.execute("INSERT INTO caixas (aberto_em, aberto_por, saldo_inicial) VALUES (?,?,?)",
+                     (agora(), c.usuario["id"], dinheiro(c.corpo.get("saldo_inicial"), "troco inicial")))
+        c.db.commit()
+    return ver_caixa(c)
+
+
+@rota("POST", "/api/caixa/movimento")
+def movimento_caixa(c):
+    cx = caixa_aberto(c.db)
+    if not cx:
+        raise Erro("Não há caixa aberto.")
+    valor = dinheiro(c.corpo.get("valor"), "valor")
+    if valor <= 0:
+        raise Erro("Informe o valor.")
+    with ESCRITA:
+        c.db.execute("INSERT INTO caixa_movimentos (caixa_id, tipo, valor, descricao, data, usuario_id) "
+                     "VALUES (?,?,?,?,?,?)",
+                     (cx["id"], opcao(c.corpo.get("tipo"), "tipo", ["suprimento", "sangria"]), valor,
+                      texto(c.corpo.get("descricao"), "descrição", maximo=200), agora(), c.usuario["id"]))
+        c.db.commit()
+    return ver_caixa(c)
+
+
+@rota("POST", "/api/caixa/fechar")
+def fechar_caixa(c):
+    cx = caixa_aberto(c.db)
+    if not cx:
+        raise Erro("Não há caixa aberto.")
+    r = resumo_caixa(c.db, cx)
+    with ESCRITA:
+        c.db.execute("""UPDATE caixas SET fechado_em = ?, fechado_por = ?, saldo_esperado = ?, saldo_informado = ?,
+                        observacao = ? WHERE id = ?""",
+                     (agora(), c.usuario["id"], r["esperado_dinheiro"],
+                      dinheiro(c.corpo.get("saldo_informado"), "valor contado"),
+                      texto(c.corpo.get("observacao"), "observação", maximo=500), cx["id"]))
+        c.db.commit()
+    return ver_caixa_id(Req(c.db, c.usuario, {}, {}, (str(cx["id"]),), c.ip, c.caminho_db))
 
 
 # ---- painel e relatórios
@@ -894,6 +1757,27 @@ def painel(c):
                FROM movimentacoes m LEFT JOIN clientes c ON c.id = m.cliente_id
                LEFT JOIN fornecedores f ON f.id = m.fornecedor_id
                WHERE m.cancelada = 0 ORDER BY m.data DESC, m.id DESC LIMIT 8""")),
+        "os": {
+            "em_andamento": c.db.execute("SELECT COUNT(*) FROM ordens_servico WHERE status NOT IN "
+                                         "('Entregue', 'Cancelada')").fetchone()[0],
+            "prontas": c.db.execute("SELECT COUNT(*) FROM ordens_servico WHERE status = 'Pronta para retirada'"
+                                    ).fetchone()[0],
+            "atrasadas": c.db.execute("SELECT COUNT(*) FROM ordens_servico WHERE status NOT IN ('Entregue', "
+                                      "'Cancelada', 'Pronta para retirada') AND previsao < ?", (h,)).fetchone()[0],
+            "receita_mes": c.db.execute("SELECT COALESCE(SUM(total), 0) FROM ordens_servico WHERE status = 'Entregue' "
+                                        "AND date(entregue_em) BETWEEN ? AND ?", (mes, h)).fetchone()[0],
+        },
+        "financeiro": um(c.db, """SELECT
+            ROUND(COALESCE(SUM(CASE WHEN tipo = 'receber' AND vencimento < ? THEN valor END), 0), 2) AS receber_vencido,
+            ROUND(COALESCE(SUM(CASE WHEN tipo = 'receber' AND vencimento BETWEEN ? AND ? THEN valor END), 0), 2)
+              AS receber_7d,
+            ROUND(COALESCE(SUM(CASE WHEN tipo = 'pagar' AND vencimento < ? THEN valor END), 0), 2) AS pagar_vencido,
+            ROUND(COALESCE(SUM(CASE WHEN tipo = 'pagar' AND vencimento BETWEEN ? AND ? THEN valor END), 0), 2)
+              AS pagar_7d
+            FROM financeiro WHERE cancelado = 0 AND pago_em IS NULL""",
+                         (h, h, (hoje + dt.timedelta(days=7)).isoformat(), h, h,
+                          (hoje + dt.timedelta(days=7)).isoformat())) if c.admin else None,
+        "caixa": caixa_aberto(c.db),
     }
 
 
@@ -1200,6 +2084,64 @@ def gerar_demo(caminho):
     capa = um(db, "SELECT id FROM produtos WHERE codigo = 'ACC-PELIC-3D'")
     registrar_movimentacao(db, admin, {"tipo": "saida", "motivo": "Perda/Avaria", "observacao": "Quebrou na aplicação",
                                        "itens": [{"produto_id": capa["id"], "quantidade": 2}]})
+
+    # financeiro: despesas fixas do mês passado (pagas) e deste mês (em aberto)
+    hoje_d = dt.date.today()
+    for desc, cat, valor, dia_v in [("Aluguel da loja", "Aluguel", 2500, 5), ("Energia elétrica", "Energia / água / internet", 380, 10),
+                                    ("Internet", "Energia / água / internet", 120, 12), ("Salário vendedor", "Salários e comissões", 2100, 5),
+                                    ("Simples Nacional", "Impostos e taxas", 640, 20)]:
+        anterior = somar_meses(hoje_d.replace(day=dia_v), -1)
+        gerar_financeiro(db, admin, "pagar", desc, cat, valor, "PIX", 1, anterior, f"{anterior} 10:00:00")
+        gerar_financeiro(db, admin, "pagar", desc, cat, valor, None, 1, hoje_d.replace(day=dia_v), None)
+    db.commit()
+    # venda no crediário (3x) com primeira parcela vencida
+    a15 = um(db, "SELECT * FROM produtos WHERE codigo = 'SAM-A15-128-PT'")
+    imei = um(db, "SELECT imei FROM imeis WHERE produto_id = ? AND status = 'disponivel'", (a15["id"],))
+    registrar_movimentacao(db, vendedor, {
+        "tipo": "saida", "motivo": "Venda", "cliente_id": 3, "forma_pagamento": "Crediário", "parcelas": 3,
+        "primeiro_vencimento": (hoje_d - dt.timedelta(days=3)).isoformat(),
+        "itens": [{"produto_id": a15["id"], "quantidade": 1, "imeis": [imei["imei"]]}]},
+        (dt.datetime.now() - dt.timedelta(days=33)).strftime("%Y-%m-%d %H:%M:%S"))
+    # ordens de serviço em várias etapas
+    tela = um(db, "SELECT id, preco_venda FROM produtos WHERE codigo = 'PEC-TELA-A15'")
+    exemplos = [
+        (1, "Samsung Galaxy A15", "Tela quebrada após queda", "Em reparo", [("Troca de tela", 120)], [(tela["id"], 1, tela["preco_venda"])], "Carlos"),
+        (2, "iPhone 11 128GB", "Não carrega", "Aguardando aprovação", [("Troca do conector de carga", 280)], [], "Carlos"),
+        (4, "Motorola Moto G32", "Bateria descarregando rápido", "Pronta para retirada", [("Troca de bateria", 180)], [], "Júlia"),
+        (5, "Xiaomi Redmi Note 11", "Caiu na água", "Em análise", [], [], "Júlia"),
+    ]
+    for cli, aparelho, defeito, status, servs, pecas, tec in exemplos:
+        entrada = (dt.datetime.now() - dt.timedelta(days=random.randint(1, 6))).strftime("%Y-%m-%d %H:%M:%S")
+        vs = sum(v for _, v in servs)
+        vp = sum(q * v for _, q, v in pecas)
+        cur = db.execute("""INSERT INTO ordens_servico (cliente_id, usuario_id, tecnico, aparelho, defeito, status, previsao,
+                            valor_servicos, valor_pecas, total, entrada_em, atualizado_em)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (cli, admin["id"], tec, aparelho, defeito, status, (hoje_d + dt.timedelta(days=2)).isoformat(),
+                          vs, vp, vs + vp, entrada, entrada))
+        for d_, v in servs:
+            db.execute("INSERT INTO os_servicos (os_id, descricao, valor) VALUES (?,?,?)", (cur.lastrowid, d_, v))
+        for p_, q, v in pecas:
+            db.execute("INSERT INTO os_pecas (os_id, produto_id, quantidade, valor_unitario) VALUES (?,?,?,?)",
+                       (cur.lastrowid, p_, q, v))
+        db.execute("INSERT INTO os_historico (os_id, data, status, nota, usuario_id) VALUES (?,?,?,?,?)",
+                   (cur.lastrowid, entrada, "Aberta", "Aparelho recebido", admin["id"]))
+        if status != "Aberta":
+            db.execute("INSERT INTO os_historico (os_id, data, status, usuario_id) VALUES (?,?,?,?)",
+                       (cur.lastrowid, agora(), status, admin["id"]))
+    # orçamento em aberto
+    s24 = um(db, "SELECT id, preco_venda FROM produtos WHERE codigo = 'SAM-S24-256-CZ'")
+    fone = um(db, "SELECT id, preco_venda FROM produtos WHERE codigo = 'ACC-FONE-BT'")
+    cur = db.execute("""INSERT INTO orcamentos (cliente_id, usuario_id, data, validade, status, subtotal, desconto, total, observacao)
+                        VALUES (2, ?, ?, ?, 'aberto', ?, 100, ?, 'Pagamento em até 10x sem juros no cartão')""",
+                     (vendedor["id"], agora(), (hoje_d + dt.timedelta(days=7)).isoformat(),
+                      s24["preco_venda"] + fone["preco_venda"], s24["preco_venda"] + fone["preco_venda"] - 100))
+    db.executemany("INSERT INTO orcamento_itens (orcamento_id, produto_id, quantidade, valor_unitario) VALUES (?,?,1,?)",
+                   [(cur.lastrowid, s24["id"], s24["preco_venda"]), (cur.lastrowid, fone["id"], fone["preco_venda"])])
+    db.execute("UPDATE config SET valor = '160000' WHERE chave = 'saldo_inicial'")
+    db.execute("INSERT INTO caixas (aberto_em, aberto_por, saldo_inicial) VALUES (?,?,200)",
+               (dt.datetime.now().replace(hour=8, minute=0, second=0).strftime("%Y-%m-%d %H:%M:%S"), admin["id"]))
+    db.commit()
     db.close()
     print("  Dados de exemplo criados (usuário extra: vendedor / vendedor123).")
 

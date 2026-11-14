@@ -1,6 +1,6 @@
-# Sistema de estoque para loja de celulares
+# Sistema de gestão para loja de celulares
 
-Controle de **estoque**, **entradas**, **saídas/vendas** e **relatórios** para loja de celulares e acessórios.
+Sistema de gestão (ERP) para loja de celulares, acessórios e assistência técnica. Cobre **vendas (PDV)**, **orçamentos**, **ordens de serviço**, **estoque**, **compras**, **financeiro** (contas a pagar e a receber, caixa, fluxo de caixa e DRE) e **relatórios**.
 Funciona no navegador, no computador do balcão e também no celular ou tablet da loja.
 
 - Não precisa instalar nada além do **Python 3.9+**: não tem dependências nem mensalidade.
@@ -56,19 +56,49 @@ Compra de fornecedor (com número da nota), devolução de cliente, troca (apare
 - Comprovante pronto para imprimir, com os dados da loja.
 - Cancelamento com justificativa: o estoque é estornado automaticamente e fica registrado quem cancelou e por quê.
 
+### Orçamentos
+- Monte o orçamento com os produtos, o desconto, a validade e as condições.
+- Imprima ou envie pelo WhatsApp com um clique.
+- Marque como aprovado ou recusado.
+- **Converta em venda**: os itens, o cliente e o desconto já vêm preenchidos no PDV.
+
+### Ordens de serviço (assistência técnica)
+- Abertura com cliente, aparelho, IMEI, senha/padrão, acessórios deixados, defeito relatado, técnico e previsão.
+- Laudo técnico, serviços e **peças do estoque**. As peças só saem do estoque quando o aparelho é entregue.
+- Andamento por situação: aberta, em análise, aguardando aprovação, aguardando peça, em reparo, pronta e entregue. Cada mudança fica registrada no histórico.
+- Botão **Avisar no WhatsApp** quando o aparelho fica pronto.
+- Via impressa com termo de garantia e espaço para assinatura.
+- Na entrega, o valor vai para o financeiro, à vista ou no crediário.
+
+### Financeiro
+- **Contas a receber**:
+  - Toda venda gera o lançamento automaticamente.
+  - No **crediário**, a venda é dividida em parcelas mensais.
+  - Tem baixa e estorno de pagamentos e alerta de vencidos.
+- **Contas a pagar**:
+  - Compras a prazo geram as parcelas.
+  - Despesas fixas (aluguel, energia, salários...) podem se repetir todo mês.
+- **Caixa**:
+  - Abertura com troco, sangria e suprimento.
+  - No fechamento, você informa o dinheiro contado e o sistema mostra a diferença.
+  - Opcionalmente, o sistema pode exigir caixa aberto para vender.
+- **Fluxo de caixa** diário (realizado e previsto) e **DRE simplificado**: receita de vendas e serviços, custo das mercadorias e peças, despesas e resultado.
+
 ### Relatórios (com exportação para Excel/CSV e impressão)
+- **Financeiro e DRE:** recebido, pago, saldo, contas em aberto, fluxo diário e despesas por categoria.
+- **Ordens de serviço:** faturamento, prazo médio de entrega, OS em andamento por situação, por técnico e serviços mais feitos.
 - **Vendas:** faturamento, ticket médio, lucro bruto, margem e descontos, com quebras por dia, por produto, por forma de pagamento, por vendedor, por categoria e por marca.
 - **Estoque:** posição atual valorizada a preço de custo e de venda, por categoria, e lista de reposição.
 - **Entradas e saídas:** resumo por motivo, giro por produto, custo das perdas e estoque parado.
 - **Rastrear IMEI:** mostra de qual fornecedor o aparelho veio, para quem foi vendido e quando. Útil para garantia.
 
 ### Usuários e segurança
-- **Administrador:** acesso total, vê custo e lucro, cadastra produtos, cancela lançamentos e faz ajustes.
-- **Vendedor:** registra vendas, entradas e clientes, mas não vê custo nem lucro.
+- **Administrador:** acesso total. Vê custo, lucro e o financeiro, cadastra produtos, cancela lançamentos e faz ajustes.
+- **Vendedor:** faz vendas, orçamentos, ordens de serviço, entradas, caixa e clientes. Não vê custo, lucro nem contas a pagar.
 - Senhas guardadas com hash (PBKDF2). A sessão expira em 12 horas. Depois de várias senhas erradas, o login é bloqueado por alguns minutos.
 
 ### Backup
-Em **Configurações → Baixar backup agora**. Guarde a cópia fora do computador (pen drive ou nuvem).
+Em **Configurações → Baixar backup agora**. Lá também ficam o saldo inicial do financeiro, a garantia padrão da OS, a validade dos orçamentos e o termo impresso na OS. Guarde a cópia fora do computador (pen drive ou nuvem).
 Para restaurar, pare o sistema, substitua `dados/estoque.db` pela cópia e inicie de novo.
 
 ## Testes
@@ -82,7 +112,8 @@ python3 -m unittest discover -s tests -v
 ```
 servidor.py           servidor web + API + banco SQLite (Python puro)
 static/index.html     interface
-static/js/app.js      telas: painel, venda, entrada, produtos, relatórios...
+static/js/app.js      telas: painel, PDV, entrada, produtos, relatórios...
+static/js/modulos.js  telas: orçamentos, ordens de serviço, financeiro e caixa
 static/css/estilo.css visual (tema claro/escuro, celular e impressão)
 tests/                testes automatizados
 dados/estoque.db      seu banco de dados (criado no primeiro uso, fora do git)

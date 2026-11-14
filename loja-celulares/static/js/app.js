@@ -82,10 +82,11 @@ function ligarCSV(raiz, mapa) {
 }
 
 /* Gráfico de barras verticais em SVG */
-function graficoBarras(dados, { valor = (d) => d.faturamento, rotulo = (d) => dia(d.dia).slice(0, 5), dica = (d) => `${dia(d.dia)}: ${brl(valor(d))}` } = {}) {
+function graficoBarras(dados, { valor = (d) => d.faturamento, series = null, rotulo = (d) => dia(d.dia).slice(0, 5), dica = (d) => `${dia(d.dia)}: ${brl(valor(d))}` } = {}) {
+  const ss = series || [valor];
   if (!dados.length) return '<p class="vazio">Sem dados no período.</p>';
   const L = 760, A = 230, mE = 54, mB = 26, mT = 8;
-  const max = Math.max(...dados.map(valor), 1);
+  const max = Math.max(...dados.flatMap((d) => ss.map((s) => s(d))), 1);
   const bruto = max / 4;
   const ordem = Math.pow(10, Math.floor(Math.log10(bruto)));
   const passo = [1, 2, 2.5, 5, 10].map((f) => f * ordem).find((s) => s >= bruto);
@@ -99,12 +100,14 @@ function graficoBarras(dados, { valor = (d) => d.faturamento, rotulo = (d) => di
   }).join('');
   const cada = Math.ceil(dados.length / 12);
   const barras = dados.map((d, i) => {
-    const h = ((A - mT - mB) * valor(d)) / topo;
-    const x = mE + i * larg + larg * 0.15;
-    const w = Math.max(larg * 0.7, 1);
-    const y = A - mB - h;
-    const r = i % cada === 0 ? `<text class="eixo" x="${x + w / 2}" y="${A - 8}" text-anchor="middle">${esc(rotulo(d))}</text>` : '';
-    return `<rect class="barra" x="${x}" y="${y}" width="${w}" height="${Math.max(h, 0)}" rx="2"><title>${esc(dica(d))}</title></rect>${r}`;
+    const x0 = mE + i * larg + larg * 0.15;
+    const w = Math.max((larg * 0.7) / ss.length, 1);
+    const rets = ss.map((s, k) => {
+      const h = ((A - mT - mB) * s(d)) / topo;
+      return `<rect class="barra ${k ? `barra-${k + 1}` : ''}" x="${x0 + k * w}" y="${A - mB - h}" width="${w}" height="${Math.max(h, 0)}" rx="2"><title>${esc(dica(d))}</title></rect>`;
+    }).join('');
+    const r = i % cada === 0 ? `<text class="eixo" x="${x0 + (w * ss.length) / 2}" y="${A - 8}" text-anchor="middle">${esc(rotulo(d))}</text>` : '';
+    return rets + r;
   }).join('');
   return `<div class="grafico"><svg viewBox="0 0 ${L} ${A}" role="img" aria-label="Gráfico de barras">${linhas}${barras}</svg></div>`;
 }
@@ -179,6 +182,7 @@ async function iniciarApp() {
   $('#usuario-perfil').textContent = estado.usuario.perfil === 'admin' ? 'Administrador' : 'Vendedor';
   $$('[data-admin]').forEach((a) => { a.hidden = !ehAdmin(); });
   atualizarNomeLoja();
+  atualizarIndicadorCaixa();
   rotear();
 }
 function atualizarNomeLoja() {
@@ -320,6 +324,13 @@ async function paginaPainel(_, __, vivo) {
       <div class="kpi"><span>Unidades em estoque</span><strong>${num(e.unidades)}</strong><small>${num(e.produtos)} produtos ativos</small></div>
       ${ehAdmin() ? `<div class="kpi"><span>Estoque a preço de custo</span><strong>${brl(e.valor_custo)}</strong><small>A preço de venda: ${brl(e.valor_venda)}</small></div>` : ''}
       <div class="kpi ${e.abaixo_minimo ? 'alerta' : ''}"><span>Abaixo do mínimo</span><strong>${num(e.abaixo_minimo)}</strong><small>${num(e.zerados)} produto(s) zerado(s)</small></div>
+    </div>
+    <div class="kpis">
+      <a class="kpi kpi-link" href="#/os"><span>OS em andamento</span><strong>${num(d.os.em_andamento)}</strong><small>${num(d.os.prontas)} pronta(s) para retirada${d.os.atrasadas ? ` · <b class="estoque baixo">${num(d.os.atrasadas)} atrasada(s)</b>` : ''}</small></a>
+      <div class="kpi"><span>Serviços entregues no mês</span><strong>${brl(d.os.receita_mes)}</strong></div>
+      ${d.financeiro ? `<a class="kpi kpi-link ${d.financeiro.receber_vencido ? 'alerta' : ''}" href="#/financeiro?tipo=receber"><span>A receber vencido</span><strong>${brl(d.financeiro.receber_vencido)}</strong><small>Próximos 7 dias: ${brl(d.financeiro.receber_7d)}</small></a>
+      <a class="kpi kpi-link ${d.financeiro.pagar_vencido ? 'alerta' : ''}" href="#/financeiro?tipo=pagar"><span>A pagar vencido</span><strong>${brl(d.financeiro.pagar_vencido)}</strong><small>Próximos 7 dias: ${brl(d.financeiro.pagar_7d)}</small></a>` : ''}
+      <a class="kpi kpi-link" href="#/caixa"><span>Caixa</span><strong>${d.caixa ? 'Aberto' : 'Fechado'}</strong><small>${d.caixa ? `desde ${esc(dataHora(d.caixa.aberto_em))}` : 'Clique para abrir'}</small></a>
     </div>
     <div class="duas-col">
       <section class="cartao"><div class="cartao-cab"><h2>Vendas dos últimos 30 dias</h2><a href="#/relatorios">Ver relatórios →</a></div>${graficoBarras(d.grafico)}</section>
@@ -473,7 +484,7 @@ async function paginaProduto(id, _, vivo) {
 async function paginaLancamento(tipo, q) {
   const meta = estado.meta;
   const ehEntrada = tipo === 'entrada';
-  const motivos = meta.motivos[tipo].filter((m) => ehAdmin() || !meta.motivos_admin.includes(m));
+  const motivos = meta.motivos[tipo].filter((m) => (ehAdmin() || !meta.motivos_admin.includes(m)) && !meta.motivos_internos.includes(m));
   const L = { motivo: motivos[0], itens: [], parceiro: '', forma: meta.pagamentos[0], desconto: 0, documento: '', observacao: '' };
   const parceiros = await api('GET', ehEntrada ? '/api/fornecedores' : '/api/clientes');
   const ehVenda = () => !ehEntrada && L.motivo === 'Venda';
@@ -493,6 +504,9 @@ async function paginaLancamento(tipo, q) {
           <label class="col-2">Motivo<select id="l-motivo">${motivos.map((m) => `<option>${esc(m)}</option>`).join('')}</select></label>
           <label class="col-2">${ehEntrada ? 'Fornecedor' : 'Cliente'}<div class="linha-input"><select id="l-parceiro"><option value="">${ehEntrada ? '— sem fornecedor —' : '— consumidor não identificado —'}</option>${parceiros.map((p) => `<option value="${p.id}">${esc(p.nome)}${p.documento ? ` · ${esc(p.documento)}` : ''}</option>`).join('')}</select><button class="btn" type="button" id="l-novo-parceiro" title="Cadastrar">+</button></div></label>
           <label class="col-2" id="w-forma">Forma de pagamento<select id="l-forma">${meta.pagamentos.map((m) => `<option>${esc(m)}</option>`).join('')}</select></label>
+          <label class="col-2" id="w-cond" hidden>Condição de pagamento<select id="l-cond"><option value="a_vista">À vista (já pago)</option><option value="a_prazo">A prazo (lança em contas a pagar)</option></select></label>
+          <div class="col-2 grade-form" id="w-parc" hidden>${campoCondicao('l')}</div>
+          <p class="col-2 sutil" id="w-parc-info" hidden></p>
           <label class="col-2">${ehEntrada ? 'Nota fiscal / documento' : 'Documento (opcional)'}<input id="l-doc" maxlength="60"></label>
           <label class="col-2">Observação<textarea id="l-obs" maxlength="1000" rows="2"></textarea></label>
         </div></section>
@@ -523,7 +537,14 @@ async function paginaLancamento(tipo, q) {
       $('#t-lucro').textContent = `${brl(total - custo)}${total ? ` (${pct(((total - custo) / total) * 100)})` : ''}`;
       $('#w-lucro').hidden = !ehVenda();
     }
-    $('#w-forma').hidden = !ehVenda();
+    const compra = ehEntrada && L.motivo === 'Compra';
+    $('#w-forma').hidden = !(ehVenda() || compra);
+    $('#w-cond').hidden = !compra;
+    const aPrazo = (ehVenda() && $('#l-forma').value === 'Crediário') || (compra && $('#l-cond').value === 'a_prazo');
+    $('#w-parc').hidden = !aPrazo;
+    const np = Math.max(1, parseInt($('#l-parcelas').value, 10) || 1);
+    $('#w-parc-info').hidden = !aPrazo || np < 2;
+    $('#w-parc-info').textContent = `${np}× de ${brl((sub - desc) / np)}`;
     $('#w-desc').hidden = !ehVenda();
     $$('#itens [data-sub]').forEach((el) => { const it = L.itens[+el.dataset.sub]; el.textContent = brl(qtdItem(it) * it.valor); });
     $$('#itens [data-qtdimei]').forEach((el) => { el.textContent = num(L.itens[+el.dataset.qtdimei].imeis.length); });
@@ -635,7 +656,9 @@ async function paginaLancamento(tipo, q) {
     L.motivo = e.target.value;
     if (eraVenda !== ehVenda()) { L.itens.forEach((it) => { it.valor = valorPadrao(it.p); }); desenharItens(); } else atualizarTotais();
   });
-  $('#l-forma').addEventListener('change', (e) => { L.forma = e.target.value; });
+  $('#l-forma').addEventListener('change', (e) => { L.forma = e.target.value; atualizarTotais(); });
+  $('#l-cond').addEventListener('change', atualizarTotais);
+  $('#l-parcelas').addEventListener('input', atualizarTotais);
   $('#l-desc').addEventListener('input', (e) => { L.desconto = paraNumero(e.target.value); atualizarTotais(); });
   $('#l-novo-parceiro').addEventListener('click', () => abrirForm({
     titulo: ehEntrada ? 'Novo fornecedor' : 'Novo cliente', campos: CAMPOS_CADASTRO(ehEntrada ? 'fornecedores' : 'clientes'),
@@ -652,8 +675,12 @@ async function paginaLancamento(tipo, q) {
     const btn = $('#l-finalizar');
     $('#l-erro').textContent = '';
     if (!L.itens.length) { $('#l-erro').textContent = 'Adicione pelo menos um produto.'; return; }
+    const compra = ehEntrada && L.motivo === 'Compra';
     const corpo = {
-      tipo, motivo: L.motivo, forma_pagamento: ehVenda() ? $('#l-forma').value : null,
+      tipo, motivo: L.motivo, forma_pagamento: ehVenda() || compra ? $('#l-forma').value : null,
+      condicao_pagamento: compra ? $('#l-cond').value : null,
+      parcelas: $('#w-parc').hidden ? 1 : $('#l-parcelas').value, primeiro_vencimento: $('#w-parc').hidden ? null : $('#l-venc').value,
+      orcamento_id: L.orcamento_id || null,
       desconto: ehVenda() ? L.desconto : 0, documento: $('#l-doc').value, observacao: $('#l-obs').value,
       [ehEntrada ? 'fornecedor_id' : 'cliente_id']: $('#l-parceiro').value || null,
       itens: L.itens.map((it) => ({ produto_id: it.p.id, quantidade: qtdItem(it), valor_unitario: it.valor, imeis: it.imeis })),
@@ -673,6 +700,26 @@ async function paginaLancamento(tipo, q) {
   desenharItens();
   const pre = q.get('produto');
   if (pre) await adicionar({ id: pre }).catch((e) => avisar(e.message, 'erro'));
+  const orc = q.get('orcamento');
+  if (orc && !ehEntrada) {
+    try {
+      const o = await api('GET', `/api/orcamentos/${orc}`);
+      L.orcamento_id = o.id;
+      for (const i of o.itens) {
+        const p = await api('GET', `/api/produtos/${i.produto_id}`);
+        L.itens.push({ p, quantidade: i.quantidade, valor: i.valor_unitario, imeis: [] });
+      }
+      if (o.cliente_id) {
+        if (!$(`#l-parceiro option[value="${o.cliente_id}"]`)) $('#l-parceiro').insertAdjacentHTML('beforeend', `<option value="${o.cliente_id}">${esc(o.cliente_nome)}</option>`);
+        $('#l-parceiro').value = o.cliente_id;
+      }
+      L.desconto = o.desconto;
+      $('#l-desc').value = o.desconto ? String(o.desconto).replace('.', ',') : '';
+      $('#l-obs').value = `Orçamento #${o.id}${o.observacao ? ` — ${o.observacao}` : ''}`;
+      desenharItens();
+      avisar(`Itens do orçamento #${o.id} carregados. ${L.itens.some((it) => it.p.controla_imei) ? 'Selecione os IMEIs.' : ''}`, 'ok');
+    } catch (e) { avisar(e.message, 'erro'); }
+  }
   busca.focus();
 }
 
@@ -766,6 +813,7 @@ async function paginaMovimentacao(id, _, vivo) {
         ${m.desconto ? `<div><span>Subtotal</span><span>${brl(m.subtotal)}</span></div><div><span>Desconto</span><span>− ${brl(m.desconto)}</span></div>` : ''}
         <div class="total"><span>Total</span><span>${brl(m.total)}</span></div>
       </div>
+      ${m.financeiro?.length > 1 ? `<h3 style="margin-top:16px">Parcelas</h3>${tabela([{ r: 'Parcela', v: (f) => f.parcela }, { r: 'Vencimento', v: (f) => dia(f.vencimento) }, { r: 'Situação', v: (f) => (f.pago_em ? `Pago em ${dia(f.pago_em)}` : 'Em aberto') }, { r: 'Valor', v: (f) => f.valor, h: (f) => brl(f.valor), cls: 'num' }], m.financeiro)}` : ''}
       ${venda && cfg.rodape_recibo ? `<p class="sutil" style="text-align:center;margin:20px 0 0">${esc(cfg.rodape_recibo)}</p>` : ''}
     </section>`;
   $('#b-imprimir').addEventListener('click', () => window.print());
@@ -783,18 +831,19 @@ async function paginaMovimentacao(id, _, vivo) {
    ========================================================================= */
 let abaRelatorio = 'vendas';
 async function paginaRelatorios() {
-  const abas = { vendas: 'Vendas', estoque: 'Estoque', movimento: 'Entradas e saídas', imei: 'Rastrear IMEI' };
+  const abas = { vendas: 'Vendas', ...(ehAdmin() ? { financeiro: 'Financeiro e DRE' } : {}), os: 'Ordens de serviço', estoque: 'Estoque', movimento: 'Entradas e saídas', imei: 'Rastrear IMEI' };
+  if (!abas[abaRelatorio]) abaRelatorio = 'vendas';
   const desenhar = async () => {
     $('#conteudo').innerHTML = `
       <div class="abas">${Object.entries(abas).map(([k, v]) => `<button data-aba="${k}" class="${k === abaRelatorio ? 'ativo' : ''}">${v}</button>`).join('')}</div>
-      ${['vendas', 'movimento'].includes(abaRelatorio) ? `<div class="ferramentas">${htmlPeriodo()}<span class="espaco"></span><button class="btn" id="r-imp">Imprimir</button></div>` : ''}
+      ${['vendas', 'movimento', 'financeiro', 'os'].includes(abaRelatorio) ? `<div class="ferramentas">${htmlPeriodo()}<span class="espaco"></span><button class="btn" id="r-imp">Imprimir</button></div>` : ''}
       ${abaRelatorio === 'estoque' ? '<div class="ferramentas"><span class="espaco"></span><button class="btn" id="r-imp">Imprimir</button></div>' : ''}
       <div class="so-impressao"><h2>${esc(estado.meta.config.nome_loja)} — Relatório de ${esc(abas[abaRelatorio])}${abaRelatorio !== 'estoque' ? ` (${textoPeriodo()})` : ` em ${dia(isoLocal(new Date()))}`}</h2></div>
       <div id="rel" style="display:grid;gap:18px"><div class="carregando">Carregando…</div></div>`;
     $$('[data-aba]').forEach((b) => b.addEventListener('click', () => { abaRelatorio = b.dataset.aba; desenhar(); }));
     ligarPeriodo($('#conteudo'), desenhar);
     $('#r-imp')?.addEventListener('click', () => window.print());
-    await ({ vendas: relVendas, estoque: relEstoque, movimento: relMovimento, imei: relImei })[abaRelatorio]();
+    await ({ vendas: relVendas, estoque: relEstoque, movimento: relMovimento, imei: relImei, financeiro: relFinanceiro, os: relOS })[abaRelatorio]();
   };
   await desenhar();
 }
@@ -1063,6 +1112,11 @@ async function paginaConfig() {
           ${campoHTML({ n: 'telefone', r: 'Telefone' }, cfg.telefone)}
           ${campoHTML({ n: 'endereco', r: 'Endereço', col2: true }, cfg.endereco)}
           ${campoHTML({ n: 'rodape_recibo', r: 'Mensagem no rodapé do comprovante', t: 'textarea', col2: true }, cfg.rodape_recibo)}
+          ${campoHTML({ n: 'garantia_os_dias', r: 'Garantia padrão da OS (dias)', t: 'number', attrs: 'min="0"' }, cfg.garantia_os_dias)}
+          ${campoHTML({ n: 'validade_orcamento_dias', r: 'Validade do orçamento (dias)', t: 'number', attrs: 'min="0"' }, cfg.validade_orcamento_dias)}
+          ${campoHTML({ n: 'termo_os', r: 'Termo de garantia impresso na OS', t: 'textarea', col2: true }, cfg.termo_os)}
+          ${campoHTML({ n: 'saldo_inicial', r: 'Saldo inicial (dinheiro + banco) quando começou a usar o sistema', col2: true, attrs: 'inputmode="decimal"', ajuda: 'Base do saldo acumulado no fluxo de caixa.' }, String(cfg.saldo_inicial || '0').replace('.', ','))}
+          ${campoHTML({ n: 'exigir_caixa', r: 'Exigir caixa aberto para vender e receber', t: 'check', col2: true }, cfg.exigir_caixa === '1')}
         </div><p class="erro-form"></p><div class="acoes-form"><button class="btn btn-primario">Salvar</button></div></form></section>
       <section class="cartao"><div class="cartao-cab"><h2>Cópia de segurança</h2></div>
         <p>Baixe uma cópia completa do banco de dados (produtos, estoque, vendas, clientes). Faça isso com frequência e guarde fora deste computador (pen drive, Google Drive).</p>
@@ -1071,7 +1125,10 @@ async function paginaConfig() {
     </div>`;
   $('#f-cfg').addEventListener('submit', async (e) => {
     e.preventDefault();
-    try { estado.meta.config = await api('PUT', '/api/config', lerForm(e.target)); atualizarNomeLoja(); avisar('Configurações salvas.', 'ok'); } catch (err) { $('.erro-form', e.target).textContent = err.message; }
+    const dados = lerForm(e.target);
+    dados.exigir_caixa = dados.exigir_caixa ? '1' : '0';
+    dados.saldo_inicial = String(paraNumero(dados.saldo_inicial));
+    try { estado.meta.config = await api('PUT', '/api/config', dados); atualizarNomeLoja(); avisar('Configurações salvas.', 'ok'); } catch (err) { $('.erro-form', e.target).textContent = err.message; }
   });
 }
 
