@@ -110,6 +110,9 @@ small, .sutil { color: var(--texto-2); }
 .ic-caixa { --m: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='10' width='18' height='10' rx='2'/%3E%3Cpath d='M7 10V5h10v5M12 14h.01'/%3E%3C/svg%3E"); }
 .ic-dinheiro { --m: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='6' width='20' height='12' rx='2'/%3E%3Ccircle cx='12' cy='12' r='2.5'/%3E%3Cpath d='M6 12h.01M18 12h.01'/%3E%3C/svg%3E"); }
 
+.ic-valor { --m: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6'/%3E%3C/svg%3E"); }
+.ic-check { --m: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4h6v3H9zM7 5H5v16h14V5h-2'/%3E%3Cpath d='m9 14 2 2 4-4'/%3E%3C/svg%3E"); }
+
 /* ----- botões e formulários ----- */
 .btn { font: inherit; font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--borda); background: var(--superficie); color: var(--texto); cursor: pointer; white-space: nowrap; text-decoration: none !important; }
 .btn:hover { background: var(--superficie-2); }
@@ -182,6 +185,7 @@ tr.clicavel:hover td { background: var(--superficie-2); }
 tr.cancelada td { color: var(--texto-3); text-decoration: line-through; }
 tfoot td { font-weight: 650; border-top: 1px solid var(--borda); border-bottom: 0; }
 .vazio { text-align: center; color: var(--texto-3); padding: 28px 12px !important; }
+.celula-produto { min-width: 190px; }
 .celula-produto strong { display: block; font-weight: 550; }
 .celula-produto small { color: var(--texto-3); }
 .cartao.sem-pad .tabela-wrap { padding: 4px 6px 6px; }
@@ -282,6 +286,28 @@ tr.linha-alerta td:first-child { box-shadow: inset 3px 0 0 var(--perigo); }
 .assinaturas { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 48px; }
 .assinaturas span { border-top: 1px solid var(--texto-3); padding-top: 6px; text-align: center; font-size: 12.5px; color: var(--texto-2); }
 
+/* ----- estoque ----- */
+.kpi.destaque-kpi { border-color: color-mix(in srgb, var(--primaria) 45%, var(--borda)); background: linear-gradient(180deg, var(--primaria-suave), var(--superficie) 70%); }
+.kpi.destaque-kpi strong { color: var(--primaria); }
+.grafico .linha { fill: none; stroke: var(--primaria); stroke-width: 2.5; stroke-linejoin: round; }
+.grafico .area { fill: var(--primaria); opacity: .1; }
+.grafico .ponto { fill: transparent; }
+.grafico .ponto:hover { fill: var(--primaria); }
+.abc { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.abc > div { border-radius: 10px; padding: 12px; background: var(--superficie-2); border: 1px solid var(--borda); min-width: 0; }
+.abc b { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: #fff; font-size: 13px; }
+.abc strong { display: block; font-size: 17px; margin-top: 6px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+.abc small { display: block; }
+.abc-A b, .tag-abc-A { background: var(--primaria); color: #fff; border-color: transparent; }
+.abc-B b, .tag-abc-B { background: #8b85f0; color: #fff; border-color: transparent; }
+.abc-C b, .tag-abc-C { background: var(--texto-3); color: #fff; border-color: transparent; }
+.txt-entrada { color: var(--sucesso); font-weight: 600; }
+.txt-saida { color: var(--perigo); font-weight: 600; }
+.custos-imei { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; }
+.custos-imei label { display: grid; grid-template-columns: 1fr 110px; align-items: center; gap: 6px; font-weight: 400; color: var(--texto); }
+.imei-op.imei-extra { border-style: dashed; border-color: var(--alerta); }
+.cartao-cab .ferramentas select, .cartao-cab .ferramentas input { width: auto; }
+
 /* ----- responsivo ----- */
 @media (max-width: 1280px) {
   .duas-iguais { grid-template-columns: minmax(0, 1fr); }
@@ -308,6 +334,7 @@ tr.linha-alerta td:first-child { box-shadow: inset 3px 0 0 var(--perigo); }
   .kpi strong { font-size: 18px; }
   .periodo label { width: calc(50% - 4px); }
   .cartao { padding: 14px; }
+  .abc { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ----- impressão ----- */

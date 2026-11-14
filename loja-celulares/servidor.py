@@ -124,7 +124,8 @@ CREATE TABLE IF NOT EXISTS itens (
     quantidade INTEGER NOT NULL CHECK (quantidade > 0),
     valor_unitario REAL NOT NULL,
     custo_unitario REAL NOT NULL,
-    imeis TEXT NOT NULL DEFAULT '[]'
+    imeis TEXT NOT NULL DEFAULT '[]',
+    custo_total REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_itens_mov ON itens(movimentacao_id);
 CREATE INDEX IF NOT EXISTS idx_itens_prod ON itens(produto_id);
@@ -233,6 +234,29 @@ CREATE TABLE IF NOT EXISTS caixas (
     saldo_esperado REAL,
     saldo_informado REAL,
     observacao TEXT
+);
+CREATE TABLE IF NOT EXISTS inventarios (
+    id INTEGER PRIMARY KEY,
+    criado_em TEXT NOT NULL,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    categoria TEXT,
+    status TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto', 'finalizado', 'cancelado')),
+    observacao TEXT,
+    finalizado_em TEXT,
+    finalizado_por INTEGER REFERENCES usuarios(id),
+    entrada_id INTEGER REFERENCES movimentacoes(id),
+    saida_id INTEGER REFERENCES movimentacoes(id)
+);
+CREATE TABLE IF NOT EXISTS inventario_itens (
+    id INTEGER PRIMARY KEY,
+    inventario_id INTEGER NOT NULL REFERENCES inventarios(id),
+    produto_id INTEGER NOT NULL REFERENCES produtos(id),
+    esperado INTEGER NOT NULL,
+    contado INTEGER,
+    imeis_esperados TEXT NOT NULL DEFAULT '[]',
+    imeis_contados TEXT NOT NULL DEFAULT '[]',
+    custo REAL NOT NULL DEFAULT 0,
+    UNIQUE (inventario_id, produto_id)
 );
 CREATE TABLE IF NOT EXISTS caixa_movimentos (
     id INTEGER PRIMARY KEY,
@@ -385,8 +409,17 @@ def inicializar_banco(caminho, avisar=True):
     con.execute("PRAGMA journal_mode = WAL")
     con.executescript(SCHEMA)
     cols = {r[1] for r in con.execute("PRAGMA table_info(movimentacoes)")}
-    if "parcelas" not in cols:  # migração de bancos criados na versão anterior
+    if "parcelas" not in cols:  # migração de bancos criados em versões anteriores
         con.execute("ALTER TABLE movimentacoes ADD COLUMN parcelas INTEGER NOT NULL DEFAULT 1")
+    if "custo_total" not in {r[1] for r in con.execute("PRAGMA table_info(itens)")}:
+        con.execute("ALTER TABLE itens ADD COLUMN custo_total REAL NOT NULL DEFAULT 0")
+        con.execute("UPDATE itens SET custo_total = ROUND(quantidade * custo_unitario, 2)")
+    if "custo" not in {r[1] for r in con.execute("PRAGMA table_info(imeis)")}:
+        con.execute("ALTER TABLE imeis ADD COLUMN custo REAL NOT NULL DEFAULT 0")
+        con.execute("""UPDATE imeis SET custo = COALESCE((SELECT i.custo_unitario FROM itens i
+                       WHERE i.movimentacao_id = imeis.entrada_id AND i.produto_id = imeis.produto_id LIMIT 1), 0)""")
+    if "localizacao" not in {r[1] for r in con.execute("PRAGMA table_info(produtos)")}:
+        con.execute("ALTER TABLE produtos ADD COLUMN localizacao TEXT")
     for k, v in CONFIG_PADRAO.items():
         con.execute("INSERT OR IGNORE INTO config (chave, valor) VALUES (?, ?)", (k, v))
     if not con.execute("SELECT 1 FROM usuarios").fetchone():
@@ -641,6 +674,7 @@ def ler_produto(b):
         "preco_custo": dinheiro(b.get("preco_custo"), "preço de custo"),
         "preco_venda": dinheiro(b.get("preco_venda"), "preço de venda"),
         "estoque_minimo": inteiro(b.get("estoque_minimo"), "estoque mínimo"),
+        "localizacao": texto(b.get("localizacao"), "localização", maximo=60),
     }
 
 
@@ -662,13 +696,15 @@ def listar_produtos(c):
         where.append("estoque_atual <= estoque_minimo")
     if c.q("com_estoque") == "1":
         where.append("estoque_atual > 0")
-    sql = "SELECT * FROM produtos" + (" WHERE " + " AND ".join(where) if where else "")
-    return dicts(c.db.execute(sql + " ORDER BY nome LIMIT 2000", args))
+    sql = (f"SELECT p.*, ROUND({VALOR_CUSTO}, 2) AS valor_custo, ROUND(p.estoque_atual * p.preco_venda, 2) AS valor_venda "
+           f"FROM produtos p" + (" WHERE " + " AND ".join(where) if where else ""))
+    return dicts(c.db.execute(sql + " ORDER BY p.nome LIMIT 2000", args))
 
 
 @rota("GET", r"/api/produtos/(\d+)")
 def detalhe_produto(c):
-    p = um(c.db, "SELECT * FROM produtos WHERE id = ?", (int(c.params[0]),))
+    p = um(c.db, f"SELECT p.*, ROUND({VALOR_CUSTO}, 2) AS valor_custo FROM produtos p WHERE p.id = ?",
+           (int(c.params[0]),))
     if not p:
         raise Erro("Produto não encontrado.", 404)
     p["imeis_disponiveis"] = [r["imei"] for r in c.db.execute(
@@ -784,6 +820,18 @@ def config(db, chave):
     return r[0] if r else CONFIG_PADRAO.get(chave, "")
 
 
+def recalcular_custo_imei(db, pid):
+    """Em produtos com IMEI o custo médio é a média do custo real dos aparelhos em estoque."""
+    r = db.execute("SELECT AVG(custo) FROM imeis WHERE produto_id = ? AND status = 'disponivel'", (pid,)).fetchone()[0]
+    if r is not None:
+        db.execute("UPDATE produtos SET preco_custo = ? WHERE id = ?", (round(r, 2), pid))
+
+
+# valor de estoque de um produto (alias p): aparelhos com IMEI somam o custo real de cada unidade
+VALOR_CUSTO = """(CASE WHEN p.controla_imei = 1 THEN (SELECT COALESCE(SUM(x.custo), 0) FROM imeis x
+                  WHERE x.produto_id = p.id AND x.status = 'disponivel') ELSE p.estoque_atual * p.preco_custo END)"""
+
+
 def registrar_movimentacao(db, usuario, b, data=None, interno=False, depois=None):
     """Grava entrada/saída, atualiza estoque, IMEIs e financeiro numa única transação.
     `depois(db, mid, total)` roda dentro da mesma transação (usado por OS e orçamentos)."""
@@ -831,7 +879,7 @@ def registrar_movimentacao(db, usuario, b, data=None, interno=False, depois=None
                 qtd = inteiro(it.get("quantidade"), f"quantidade ({p['nome']})", 1, 100_000)
                 padrao = p["preco_venda"] if tipo == "saida" else p["preco_custo"]
                 valor = dinheiro(it.get("valor_unitario", padrao), f"valor ({p['nome']})")
-                lista = []
+                lista, custos = [], []
                 if p["controla_imei"]:
                     lista = [re.sub(r"\D", "", str(x)) for x in (it.get("imeis") or []) if str(x).strip()]
                     if len(lista) != qtd:
@@ -848,13 +896,28 @@ def registrar_movimentacao(db, usuario, b, data=None, interno=False, depois=None
                         if tipo == "saida" and (not reg or reg["status"] != "disponivel"
                                                 or reg["produto_id"] != p["id"]):
                             raise Erro(f"O IMEI {imei} não está disponível no estoque de {p['nome']}.")
+                    if tipo == "entrada":
+                        bruto = it.get("custos")
+                        if isinstance(bruto, list) and bruto:
+                            if len(bruto) != qtd:
+                                raise Erro(f"{p['nome']}: informe um custo para cada IMEI.")
+                            custos = [dinheiro(x, f"custo do IMEI {lista[k]}") for k, x in enumerate(bruto)]
+                        elif motivo == "Compra":
+                            custos = [valor] * qtd
+                        else:  # devolução/troca: o aparelho volta com o custo que tinha
+                            for imei in lista:
+                                reg = um(db, "SELECT custo FROM imeis WHERE imei = ?", (imei,))
+                                custos.append(reg["custo"] if reg and reg["custo"] else p["preco_custo"])
                 if tipo == "saida":
                     retirada[p["id"]] = retirada.get(p["id"], 0) + qtd
                     if retirada[p["id"]] > p["estoque_atual"]:
                         raise Erro(f"Estoque insuficiente de {p['nome']}: disponível {p['estoque_atual']}.")
-                prontos.append((p, qtd, valor, lista))
+                linha = round(sum(custos), 2) if (custos and tipo == "entrada" and motivo == "Compra") else round(qtd * valor, 2)
+                if custos and motivo == "Compra":
+                    valor = round(linha / qtd, 2)
+                prontos.append((p, qtd, valor, lista, custos, linha))
 
-            subtotal = round(sum(q * v for _, q, v, _ in prontos), 2)
+            subtotal = round(sum(x[5] for x in prontos), 2)
             desconto = dinheiro(b.get("desconto"), "desconto") if venda else 0.0
             if desconto > subtotal:
                 raise Erro("O desconto não pode ser maior que o subtotal.")
@@ -866,32 +929,43 @@ def registrar_movimentacao(db, usuario, b, data=None, interno=False, depois=None
                 (tipo, motivo, momento, usuario["id"], fornecedor_id, cliente_id, forma or forma_compra, documento,
                  subtotal, desconto, total, observacao, parcelas))
             mid = cur.lastrowid
-            for p, qtd, valor, lista in prontos:
+            for p, qtd, valor, lista, custos, _linha in prontos:
                 atual = um(db, "SELECT estoque_atual, preco_custo FROM produtos WHERE id = ?", (p["id"],))
                 if tipo == "entrada":
                     custo = valor if motivo == "Compra" else atual["preco_custo"]
+                    custo_total = round(sum(custos), 2) if custos else round(qtd * custo, 2)
+                    if custos:
+                        custo = round(sum(custos) / qtd, 2)
                     novo_custo = atual["preco_custo"]
                     if motivo == "Compra" and valor > 0:  # custo médio ponderado
                         e = atual["estoque_atual"]
                         novo_custo = round((e * atual["preco_custo"] + qtd * valor) / (e + qtd), 2) if e else valor
                     db.execute("UPDATE produtos SET estoque_atual = estoque_atual + ?, preco_custo = ? WHERE id = ?",
                                (qtd, novo_custo, p["id"]))
-                    for imei in lista:
+                    for imei, cu in zip(lista, custos):
                         db.execute(
-                            """INSERT INTO imeis (imei, produto_id, status, entrada_id, saida_id, atualizado_em)
-                               VALUES (?, ?, 'disponivel', ?, NULL, ?)
+                            """INSERT INTO imeis (imei, produto_id, status, entrada_id, saida_id, atualizado_em, custo)
+                               VALUES (?, ?, 'disponivel', ?, NULL, ?, ?)
                                ON CONFLICT(imei) DO UPDATE SET produto_id = excluded.produto_id,
                                status = 'disponivel', entrada_id = excluded.entrada_id, saida_id = NULL,
-                               atualizado_em = excluded.atualizado_em""", (imei, p["id"], mid, momento))
+                               atualizado_em = excluded.atualizado_em, custo = excluded.custo""",
+                            (imei, p["id"], mid, momento, cu))
                 else:
                     custo = atual["preco_custo"]
+                    custo_total = round(qtd * custo, 2)
+                    if lista:  # custo real dos aparelhos que estão saindo
+                        custo_total = round(db.execute(
+                            f"SELECT SUM(custo) FROM imeis WHERE imei IN ({','.join('?' * len(lista))})", lista).fetchone()[0] or 0, 2)
+                        custo = round(custo_total / qtd, 2)
                     db.execute("UPDATE produtos SET estoque_atual = estoque_atual - ? WHERE id = ?", (qtd, p["id"]))
                     for imei in lista:
                         db.execute("UPDATE imeis SET status = ?, saida_id = ?, atualizado_em = ? WHERE imei = ?",
                                    ("vendido" if venda else "baixado", mid, momento, imei))
+                if p["controla_imei"]:
+                    recalcular_custo_imei(db, p["id"])
                 db.execute(
-                    """INSERT INTO itens (movimentacao_id, produto_id, quantidade, valor_unitario, custo_unitario, imeis)
-                       VALUES (?,?,?,?,?,?)""", (mid, p["id"], qtd, valor, custo, json.dumps(lista)))
+                    """INSERT INTO itens (movimentacao_id, produto_id, quantidade, valor_unitario, custo_unitario, imeis,
+                       custo_total) VALUES (?,?,?,?,?,?,?)""", (mid, p["id"], qtd, valor, custo, json.dumps(lista), custo_total))
             if venda and total > 0:
                 crediario = forma == "Crediário"
                 gerar_financeiro(db, usuario, "receber", f"Venda #{mid}", "Venda de produtos", total, forma,
@@ -1024,6 +1098,9 @@ def estornar_movimentacao(db, usuario, m, justificativa):
                            "WHERE imei = ?", (agora(), imei))
             db.execute("UPDATE produtos SET estoque_atual = estoque_atual + ? WHERE id = ?",
                        (i["quantidade"], i["produto_id"]))
+    for i in m["itens"]:
+        if i["imeis"]:
+            recalcular_custo_imei(db, i["produto_id"])
     db.execute("""UPDATE movimentacoes SET cancelada = 1, cancelada_em = ?, cancelada_por = ?,
                   motivo_cancelamento = ? WHERE id = ?""", (agora(), usuario["id"], justificativa, mid))
     db.execute("UPDATE financeiro SET cancelado = 1 WHERE movimentacao_id = ?", (mid,))
@@ -1537,7 +1614,7 @@ def relatorio_financeiro(c):
     vendas = resumo_vendas(c.db, inicio, fim)
     os_ = um(c.db, """SELECT COUNT(*) AS qtd, COALESCE(SUM(total), 0) AS receita FROM ordens_servico
                       WHERE status = 'Entregue' AND date(entregue_em) BETWEEN ? AND ?""", args)
-    custo_pecas = um(c.db, """SELECT COALESCE(SUM(i.quantidade * i.custo_unitario), 0) AS c FROM itens i
+    custo_pecas = um(c.db, """SELECT COALESCE(SUM(i.custo_total), 0) AS c FROM itens i
                               JOIN movimentacoes m ON m.id = i.movimentacao_id
                               WHERE m.motivo = 'Ordem de serviço' AND m.cancelada = 0
                               AND date(m.data) BETWEEN ? AND ?""", args)["c"]
@@ -1678,12 +1755,371 @@ def fechar_caixa(c):
     return ver_caixa_id(Req(c.db, c.usuario, {}, {}, (str(cx["id"]),), c.ip, c.caminho_db))
 
 
+# ---- estoque: valor investido, idade, curva ABC, ficha (kardex) e inventário
+
+FAIXAS_IDADE = [(0, 30, "Até 30 dias"), (31, 60, "31 a 60 dias"), (61, 90, "61 a 90 dias"),
+                (91, 180, "91 a 180 dias"), (181, 10 ** 6, "Mais de 180 dias")]
+
+
+def camadas_estoque(db, p):
+    """De onde vem o saldo atual: cada aparelho (IMEI) ou lote de compra que ainda está na loja (PEPS)."""
+    if p["controla_imei"]:
+        return [{"quantidade": 1, "data": r["data"], "custo": r["custo"], "imei": r["imei"],
+                 "entrada_id": r["entrada_id"], "fornecedor": r["fornecedor"]}
+                for r in db.execute(
+                    """SELECT x.imei, x.custo, x.entrada_id, COALESCE(m.data, x.atualizado_em) AS data,
+                              f.nome AS fornecedor FROM imeis x
+                       LEFT JOIN movimentacoes m ON m.id = x.entrada_id
+                       LEFT JOIN fornecedores f ON f.id = m.fornecedor_id
+                       WHERE x.produto_id = ? AND x.status = 'disponivel' ORDER BY data""", (p["id"],))]
+    falta, camadas = p["estoque_atual"], []
+    for r in db.execute(
+            """SELECT i.quantidade, i.custo_unitario, m.data, m.id, f.nome AS fornecedor FROM itens i
+               JOIN movimentacoes m ON m.id = i.movimentacao_id LEFT JOIN fornecedores f ON f.id = m.fornecedor_id
+               WHERE i.produto_id = ? AND m.tipo = 'entrada' AND m.cancelada = 0
+               ORDER BY m.data DESC, m.id DESC""", (p["id"],)):
+        if falta <= 0:
+            break
+        q = min(falta, r["quantidade"])
+        camadas.append({"quantidade": q, "data": r["data"], "custo": r["custo_unitario"], "imei": None,
+                        "entrada_id": r["id"], "fornecedor": r["fornecedor"]})
+        falta -= q
+    if falta > 0:
+        camadas.append({"quantidade": falta, "data": None, "custo": p["preco_custo"], "imei": None,
+                        "entrada_id": None, "fornecedor": None})
+    return list(reversed(camadas))
+
+
+def dias_desde(data, hoje):
+    return (hoje - dt.date.fromisoformat(data[:10])).days if data else None
+
+
+@rota("GET", "/api/estoque/painel", "admin")
+def painel_estoque(c):
+    hoje = dt.date.today()
+    h90 = (hoje - dt.timedelta(days=89)).isoformat()
+    vendidos = {r[0]: (r[1], r[2]) for r in c.db.execute(
+        """SELECT i.produto_id, SUM(i.quantidade), SUM(i.custo_total) FROM itens i
+           JOIN movimentacoes m ON m.id = i.movimentacao_id
+           WHERE m.tipo = 'saida' AND m.motivo IN ('Venda', 'Ordem de serviço') AND m.cancelada = 0
+           AND date(m.data) >= ? GROUP BY i.produto_id""", (h90,))}
+    ultima = {r[0]: r[1] for r in c.db.execute(
+        """SELECT i.produto_id, MAX(m.data) FROM itens i JOIN movimentacoes m ON m.id = i.movimentacao_id
+           WHERE m.tipo = 'saida' AND m.motivo IN ('Venda', 'Ordem de serviço') AND m.cancelada = 0
+           GROUP BY i.produto_id""")}
+    produtos = dicts(c.db.execute(
+        f"""SELECT p.*, ROUND({VALOR_CUSTO}, 2) AS valor_custo FROM produtos p WHERE p.ativo = 1 ORDER BY p.nome"""))
+    faixas = [{"faixa": f[2], "unidades": 0, "valor": 0.0} for f in FAIXAS_IDADE]
+    for p in produtos:
+        p["valor_venda"] = round(p["estoque_atual"] * p["preco_venda"], 2)
+        p["lucro_potencial"] = round(p["valor_venda"] - p["valor_custo"], 2)
+        p["margem"] = round(100 * p["lucro_potencial"] / p["valor_venda"], 1) if p["valor_venda"] else None
+        q90, cmv90 = vendidos.get(p["id"], (0, 0))
+        p["vendidos_90d"] = q90
+        p["cobertura_dias"] = round(p["estoque_atual"] / (q90 / 90)) if q90 and p["estoque_atual"] else None
+        p["giro_90d"] = round(cmv90 / p["valor_custo"], 2) if p["valor_custo"] else None
+        p["ultima_venda"] = ultima.get(p["id"])
+        p["dias_sem_venda"] = dias_desde(p["ultima_venda"], hoje)
+        idade_total, mais_antiga = 0, None
+        for cm in camadas_estoque(c.db, p) if p["estoque_atual"] else []:
+            dias = dias_desde(cm["data"], hoje) or 0
+            idade_total += dias * cm["quantidade"]
+            mais_antiga = max(mais_antiga or 0, dias)
+            valor = cm["custo"] * cm["quantidade"] if p["controla_imei"] else p["preco_custo"] * cm["quantidade"]
+            for f, (ini, fim, _) in zip(faixas, FAIXAS_IDADE):
+                if ini <= dias <= fim:
+                    f["unidades"] += cm["quantidade"]
+                    f["valor"] += valor
+        p["idade_media"] = round(idade_total / p["estoque_atual"]) if p["estoque_atual"] else None
+        p["idade_maxima"] = mais_antiga
+        # parado: está na loja há mais de 90 dias e não vendeu nada nesse tempo
+        p["parado"] = bool(p["estoque_atual"] and (p["idade_media"] or 0) > 90
+                           and (p["dias_sem_venda"] is None or p["dias_sem_venda"] > 90))
+    for f in faixas:
+        f["valor"] = round(f["valor"], 2)
+
+    total = sum(p["valor_custo"] for p in produtos) or 0
+    acumulado = 0
+    for p in sorted(produtos, key=lambda x: -x["valor_custo"]):
+        if p["valor_custo"] <= 0:
+            p["classe"], p["pct"], p["pct_acumulado"] = None, 0, None
+            continue
+        acumulado += p["valor_custo"]
+        p["pct"] = round(100 * p["valor_custo"] / total, 2)
+        p["pct_acumulado"] = round(100 * acumulado / total, 2)
+        anterior = p["pct_acumulado"] - p["pct"]
+        p["classe"] = "A" if anterior < 80 else "B" if anterior < 95 else "C"
+
+    def agrupar(campo):
+        g = {}
+        for p in produtos:
+            k = p[campo] or "Não informado"
+            x = g.setdefault(k, {"chave": k, "produtos": 0, "unidades": 0, "valor_custo": 0.0, "valor_venda": 0.0})
+            x["produtos"] += 1
+            x["unidades"] += p["estoque_atual"]
+            x["valor_custo"] += p["valor_custo"]
+            x["valor_venda"] += p["valor_venda"]
+        lista = sorted(g.values(), key=lambda x: -x["valor_custo"])
+        for x in lista:
+            x["valor_custo"], x["valor_venda"] = round(x["valor_custo"], 2), round(x["valor_venda"], 2)
+            x["pct"] = round(100 * x["valor_custo"] / total, 1) if total else 0
+        return lista
+
+    # evolução do valor investido: soma das entradas menos o custo das saídas, dia a dia
+    deltas = dicts(c.db.execute(
+        """SELECT date(m.data) AS dia,
+                  SUM(CASE WHEN m.tipo = 'entrada' THEN i.custo_total
+                           ELSE -i.custo_total END) AS valor,
+                  SUM(CASE WHEN m.tipo = 'entrada' THEN i.quantidade ELSE -i.quantidade END) AS unidades
+           FROM itens i JOIN movimentacoes m ON m.id = i.movimentacao_id
+           WHERE m.cancelada = 0 GROUP BY dia ORDER BY dia"""))
+    inicio_hist = hoje - dt.timedelta(days=89)
+    valor = sum(d["valor"] for d in deltas if d["dia"] < inicio_hist.isoformat())
+    unid = sum(d["unidades"] for d in deltas if d["dia"] < inicio_hist.isoformat())
+    por_dia = {d["dia"]: d for d in deltas}
+    historico, d = [], inicio_hist
+    while d <= hoje:
+        k = d.isoformat()
+        if k in por_dia:
+            valor += por_dia[k]["valor"]
+            unid += por_dia[k]["unidades"]
+        historico.append({"dia": k, "valor": round(valor, 2), "unidades": unid})
+        d += dt.timedelta(days=1)
+
+    mes = hoje.replace(day=1).isoformat()
+    fluxo_mes = um(c.db, """SELECT
+            ROUND(COALESCE(SUM(CASE WHEN m.tipo = 'entrada' AND m.motivo = 'Compra' THEN i.custo_total END), 0), 2) AS comprado,
+            ROUND(COALESCE(SUM(CASE WHEN m.tipo = 'saida' AND m.motivo IN ('Venda', 'Ordem de serviço') THEN i.custo_total END), 0), 2) AS vendido_custo,
+            ROUND(COALESCE(SUM(CASE WHEN m.tipo = 'saida' AND m.motivo NOT IN ('Venda', 'Ordem de serviço') THEN i.custo_total END), 0), 2) AS baixas_custo
+        FROM itens i JOIN movimentacoes m ON m.id = i.movimentacao_id
+        WHERE m.cancelada = 0 AND date(m.data) >= ?""", (mes,))
+    com_estoque = [p for p in produtos if p["estoque_atual"] > 0]
+    cmv_90 = sum(v[1] for v in vendidos.values())
+    resumo = {
+        "valor_custo": round(total, 2),
+        "valor_venda": round(sum(p["valor_venda"] for p in produtos), 2),
+        "unidades": sum(p["estoque_atual"] for p in produtos),
+        "produtos": len(produtos), "com_estoque": len(com_estoque),
+        "zerados": len(produtos) - len(com_estoque),
+        "abaixo_minimo": sum(1 for p in produtos if p["estoque_minimo"] > 0 and p["estoque_atual"] <= p["estoque_minimo"]),
+        "parado_90_valor": round(sum(p["valor_custo"] for p in com_estoque if p["parado"]), 2),
+        "idade_media": round(sum((p["idade_media"] or 0) * p["valor_custo"] for p in com_estoque) / total) if total else 0,
+        "cobertura_dias": round(total / (cmv_90 / 90)) if cmv_90 else None,
+    }
+    resumo["lucro_potencial"] = round(resumo["valor_venda"] - resumo["valor_custo"], 2)
+    resumo["margem"] = round(100 * resumo["lucro_potencial"] / resumo["valor_venda"], 1) if resumo["valor_venda"] else 0
+    return {"resumo": resumo, "produtos": produtos, "faixas": faixas, "historico": historico,
+            "fluxo_mes": fluxo_mes, "por_categoria": agrupar("categoria"), "por_marca": agrupar("marca"),
+            "por_condicao": agrupar("condicao"),
+            "classes": [{"classe": k,
+                         "produtos": sum(1 for p in produtos if p["classe"] == k),
+                         "valor": round(sum(p["valor_custo"] for p in produtos if p["classe"] == k), 2)}
+                        for k in "ABC"]}
+
+
+@rota("GET", r"/api/produtos/(\d+)/ficha", "admin")
+def ficha_estoque(c):
+    """Kardex: cada entrada e saída do produto com o saldo em quantidade e em valor depois dela."""
+    p = um(c.db, f"SELECT p.*, ROUND({VALOR_CUSTO}, 2) AS valor_custo FROM produtos p WHERE p.id = ?",
+           (int(c.params[0]),))
+    if not p:
+        raise Erro("Produto não encontrado.", 404)
+    linhas, saldo_q, saldo_v = [], 0, 0.0
+    for r in c.db.execute(
+            """SELECT m.id, m.tipo, m.motivo, m.data, m.documento, i.quantidade, i.custo_unitario, i.custo_total, i.valor_unitario,
+                      i.imeis, COALESCE(c.nome, f.nome) AS parceiro
+               FROM itens i JOIN movimentacoes m ON m.id = i.movimentacao_id
+               LEFT JOIN clientes c ON c.id = m.cliente_id LEFT JOIN fornecedores f ON f.id = m.fornecedor_id
+               WHERE i.produto_id = ? AND m.cancelada = 0 ORDER BY m.data, m.id""", (p["id"],)):
+        r = dict(r)
+        sinal = 1 if r["tipo"] == "entrada" else -1
+        saldo_q += sinal * r["quantidade"]
+        saldo_v += sinal * r["custo_total"]
+        r.update(saldo_qtd=saldo_q, saldo_valor=round(saldo_v, 2),
+                 custo_medio=round(saldo_v / saldo_q, 2) if saldo_q else 0,
+                 valor_mov=round(r["custo_total"], 2), imeis=json.loads(r["imeis"]))
+        linhas.append(r)
+    hoje = dt.date.today()
+    camadas = camadas_estoque(c.db, p)
+    for cm in camadas:
+        cm["dias"] = dias_desde(cm["data"], hoje)
+        cm["preco_venda"] = p["preco_venda"]
+    return {"produto": p, "kardex": linhas, "camadas": camadas}
+
+
+# ---- inventário (contagem física)
+
+def carregar_inventario(db, iid):
+    inv = um(db, """SELECT v.*, u.nome AS usuario_nome, uf.nome AS finalizado_por_nome FROM inventarios v
+                    JOIN usuarios u ON u.id = v.usuario_id LEFT JOIN usuarios uf ON uf.id = v.finalizado_por
+                    WHERE v.id = ?""", (iid,))
+    if not inv:
+        raise Erro("Inventário não encontrado.", 404)
+    itens = dicts(db.execute(
+        """SELECT ii.*, p.nome, p.codigo, p.categoria, p.localizacao, p.controla_imei, p.estoque_atual
+           FROM inventario_itens ii JOIN produtos p ON p.id = ii.produto_id
+           WHERE ii.inventario_id = ? ORDER BY COALESCE(p.localizacao, ''), p.nome""", (iid,)))
+    for i in itens:
+        i["imeis_esperados"] = json.loads(i["imeis_esperados"])
+        i["imeis_contados"] = json.loads(i["imeis_contados"])
+        i["diferenca"] = None if i["contado"] is None else i["contado"] - i["esperado"]
+        if i["controla_imei"] and i["contado"] is not None:
+            i["imeis_faltando"] = [x for x in i["imeis_esperados"] if x not in i["imeis_contados"]]
+            i["imeis_sobrando"] = [x for x in i["imeis_contados"] if x not in i["imeis_esperados"]]
+        i["valor_diferenca"] = round((i["diferenca"] or 0) * i["custo"], 2)
+    inv["itens"] = itens
+    inv["resumo"] = {
+        "produtos": len(itens), "contados": sum(1 for i in itens if i["contado"] is not None),
+        "com_diferenca": sum(1 for i in itens if i["diferenca"]),
+        "falta_unidades": -sum(i["diferenca"] for i in itens if i["diferenca"] and i["diferenca"] < 0),
+        "sobra_unidades": sum(i["diferenca"] for i in itens if i["diferenca"] and i["diferenca"] > 0),
+        "falta_valor": round(-sum(i["valor_diferenca"] for i in itens if i["valor_diferenca"] < 0), 2),
+        "sobra_valor": round(sum(i["valor_diferenca"] for i in itens if i["valor_diferenca"] > 0), 2),
+        "valor_esperado": round(sum(i["esperado"] * i["custo"] for i in itens), 2),
+    }
+    return inv
+
+
+@rota("GET", "/api/inventarios", "admin")
+def listar_inventarios(c):
+    lista = dicts(c.db.execute(
+        """SELECT v.id, v.criado_em, v.status, v.categoria, v.observacao, v.finalizado_em, u.nome AS usuario_nome
+           FROM inventarios v JOIN usuarios u ON u.id = v.usuario_id ORDER BY v.id DESC LIMIT 200"""))
+    for v in lista:
+        v["resumo"] = carregar_inventario(c.db, v["id"])["resumo"]
+    return lista
+
+
+@rota("POST", "/api/inventarios", "admin")
+def criar_inventario(c):
+    if c.db.execute("SELECT 1 FROM inventarios WHERE status = 'aberto'").fetchone():
+        raise Erro("Já existe um inventário em andamento. Finalize ou cancele antes de abrir outro.")
+    categoria = c.corpo.get("categoria") or None
+    if categoria:
+        opcao(categoria, "categoria", CATEGORIAS)
+    with ESCRITA:
+        cur = c.db.execute("INSERT INTO inventarios (criado_em, usuario_id, categoria, observacao) VALUES (?,?,?,?)",
+                           (agora(), c.usuario["id"], categoria, texto(c.corpo.get("observacao"), "observação", maximo=300)))
+        iid = cur.lastrowid
+        for p in dicts(c.db.execute("SELECT * FROM produtos WHERE ativo = 1" + (" AND categoria = ?" if categoria else ""),
+                                    (categoria,) if categoria else ())):
+            imeis = [r[0] for r in c.db.execute(
+                "SELECT imei FROM imeis WHERE produto_id = ? AND status = 'disponivel' ORDER BY imei", (p["id"],))]
+            c.db.execute("""INSERT INTO inventario_itens (inventario_id, produto_id, esperado, imeis_esperados, custo)
+                            VALUES (?,?,?,?,?)""", (iid, p["id"], p["estoque_atual"], json.dumps(imeis), p["preco_custo"]))
+        c.db.commit()
+    return carregar_inventario(c.db, iid)
+
+
+@rota("GET", r"/api/inventarios/(\d+)", "admin")
+def detalhe_inventario(c):
+    return carregar_inventario(c.db, int(c.params[0]))
+
+
+@rota("PUT", r"/api/inventarios/(\d+)/contagem", "admin")
+def salvar_contagem(c):
+    iid = int(c.params[0])
+    inv = carregar_inventario(c.db, iid)
+    if inv["status"] != "aberto":
+        raise Erro("Este inventário já foi encerrado.")
+    por_produto = {i["produto_id"]: i for i in inv["itens"]}
+    with ESCRITA:
+        for it in c.corpo.get("itens") or []:
+            i = por_produto.get(inteiro(it.get("produto_id"), "produto"))
+            if not i:
+                continue
+            if i["controla_imei"]:
+                imeis = sorted({re.sub(r"\D", "", str(x)) for x in (it.get("imeis") or []) if str(x).strip()})
+                for x in imeis:
+                    if not imei_valido(x):
+                        raise Erro(f"IMEI inválido na contagem de {i['nome']}: {x}")
+                contado = len(imeis) if it.get("contado") not in (None, "") or imeis else None
+                c.db.execute("UPDATE inventario_itens SET contado = ?, imeis_contados = ? WHERE id = ?",
+                             (contado, json.dumps(imeis), i["id"]))
+            else:
+                v = it.get("contado")
+                contado = None if v in (None, "") else inteiro(v, f"contagem de {i['nome']}")
+                c.db.execute("UPDATE inventario_itens SET contado = ? WHERE id = ?", (contado, i["id"]))
+        c.db.commit()
+    return carregar_inventario(c.db, iid)
+
+
+@rota("POST", r"/api/inventarios/(\d+)/finalizar", "admin")
+def finalizar_inventario(c):
+    """Aplica as diferenças contadas como ajustes de inventário (entrada para sobras, saída para faltas)."""
+    iid = int(c.params[0])
+    inv = carregar_inventario(c.db, iid)
+    if inv["status"] != "aberto":
+        raise Erro("Este inventário já foi encerrado.")
+    entradas, saidas = [], []
+    for i in inv["itens"]:
+        if i["contado"] is None or not (i["diferenca"] or i.get("imeis_faltando") or i.get("imeis_sobrando")):
+            continue
+        if i["controla_imei"]:
+            faltando = [x for x in i["imeis_faltando"]
+                        if c.db.execute("SELECT 1 FROM imeis WHERE imei = ? AND status = 'disponivel' AND produto_id = ?",
+                                        (x, i["produto_id"])).fetchone()]
+            sobrando = [x for x in i["imeis_sobrando"]
+                        if not c.db.execute("SELECT 1 FROM imeis WHERE imei = ? AND status = 'disponivel'", (x,)).fetchone()]
+            if faltando:
+                saidas.append({"produto_id": i["produto_id"], "quantidade": len(faltando), "imeis": faltando})
+            if sobrando:
+                entradas.append({"produto_id": i["produto_id"], "quantidade": len(sobrando), "imeis": sobrando,
+                                 "valor_unitario": i["custo"]})
+        elif i["diferenca"] < 0:
+            atual = um(c.db, "SELECT estoque_atual FROM produtos WHERE id = ?", (i["produto_id"],))["estoque_atual"]
+            saidas.append({"produto_id": i["produto_id"], "quantidade": min(-i["diferenca"], atual)})
+        else:
+            entradas.append({"produto_id": i["produto_id"], "quantidade": i["diferenca"], "valor_unitario": i["custo"]})
+    saidas = [s_ for s_ in saidas if s_["quantidade"] > 0]
+    # confere tudo antes de gravar, para não aplicar só metade dos ajustes
+    for it in saidas + entradas:
+        if not c.db.execute("SELECT 1 FROM produtos WHERE id = ? AND ativo = 1", (it["produto_id"],)).fetchone():
+            raise Erro("Há produto inativo com diferença na contagem: reative-o ou zere a contagem dele.")
+    doc = f"Inventário #{iid}"
+    ids = {"entrada_id": None, "saida_id": None}
+
+    def fechar(db, mid=None, _t=0, campo=None):
+        if campo:
+            ids[campo] = mid
+        db.execute("""UPDATE inventarios SET status = 'finalizado', finalizado_em = ?, finalizado_por = ?,
+                      entrada_id = ?, saida_id = ? WHERE id = ?""",
+                   (agora(), c.usuario["id"], ids["entrada_id"], ids["saida_id"], iid))
+    if saidas:
+        ids["saida_id"] = registrar_movimentacao(c.db, c.usuario, {
+            "tipo": "saida", "motivo": "Ajuste de inventário", "documento": doc,
+            "observacao": "Faltas encontradas na contagem", "itens": saidas},
+            depois=None if entradas else (lambda db, mid, t: fechar(db, mid, t, "saida_id")))
+    if entradas:
+        registrar_movimentacao(c.db, c.usuario, {
+            "tipo": "entrada", "motivo": "Ajuste de inventário", "documento": doc,
+            "observacao": "Sobras encontradas na contagem", "itens": entradas},
+            depois=lambda db, mid, t: fechar(db, mid, t, "entrada_id"))
+    if not saidas and not entradas:
+        with ESCRITA:
+            fechar(c.db)
+            c.db.commit()
+    return carregar_inventario(c.db, iid)
+
+
+@rota("POST", r"/api/inventarios/(\d+)/cancelar", "admin")
+def cancelar_inventario(c):
+    iid = int(c.params[0])
+    if carregar_inventario(c.db, iid)["status"] != "aberto":
+        raise Erro("Este inventário já foi encerrado.")
+    with ESCRITA:
+        c.db.execute("UPDATE inventarios SET status = 'cancelado', finalizado_em = ?, finalizado_por = ? WHERE id = ?",
+                     (agora(), c.usuario["id"], iid))
+        c.db.commit()
+    return carregar_inventario(c.db, iid)
+
+
 # ---- painel e relatórios
 
 VENDAS = "m.tipo = 'saida' AND m.motivo = 'Venda' AND m.cancelada = 0"
 # receita do item já com o desconto da venda rateado proporcionalmente
 RECEITA_ITEM = "i.quantidade * i.valor_unitario * (CASE WHEN m.subtotal > 0 THEN m.total / m.subtotal ELSE 0 END)"
-CUSTO_ITEM = "i.quantidade * i.custo_unitario"
+CUSTO_ITEM = "i.custo_total"
 
 
 def resumo_vendas(db, inicio, fim):
@@ -1729,13 +2165,13 @@ def vendas_agrupadas(db, inicio, fim, campo, limite=1000):
 
 
 def resumo_estoque(db):
-    return um(db, """SELECT COUNT(*) AS produtos, COALESCE(SUM(estoque_atual), 0) AS unidades,
-                            ROUND(COALESCE(SUM(estoque_atual * preco_custo), 0), 2) AS valor_custo,
-                            ROUND(COALESCE(SUM(estoque_atual * preco_venda), 0), 2) AS valor_venda,
-                            SUM(CASE WHEN estoque_atual <= estoque_minimo AND estoque_minimo > 0 THEN 1 ELSE 0 END)
+    return um(db, f"""SELECT COUNT(*) AS produtos, COALESCE(SUM(p.estoque_atual), 0) AS unidades,
+                            ROUND(COALESCE(SUM({VALOR_CUSTO}), 0), 2) AS valor_custo,
+                            ROUND(COALESCE(SUM(p.estoque_atual * p.preco_venda), 0), 2) AS valor_venda,
+                            SUM(CASE WHEN p.estoque_atual <= p.estoque_minimo AND p.estoque_minimo > 0 THEN 1 ELSE 0 END)
                               AS abaixo_minimo,
-                            SUM(CASE WHEN estoque_atual = 0 THEN 1 ELSE 0 END) AS zerados
-                     FROM produtos WHERE ativo = 1""")
+                            SUM(CASE WHEN p.estoque_atual = 0 THEN 1 ELSE 0 END) AS zerados
+                     FROM produtos p WHERE p.ativo = 1""")
 
 
 @rota("GET", "/api/painel")
@@ -1804,17 +2240,17 @@ def relatorio_estoque(c):
     return {
         "resumo": resumo_estoque(c.db),
         "por_categoria": dicts(c.db.execute(
-            """SELECT categoria AS chave, COUNT(*) AS produtos, SUM(estoque_atual) AS unidades,
-                      ROUND(SUM(estoque_atual * preco_custo), 2) AS valor_custo,
-                      ROUND(SUM(estoque_atual * preco_venda), 2) AS valor_venda
-               FROM produtos WHERE ativo = 1 GROUP BY categoria ORDER BY valor_custo DESC""")),
+            f"""SELECT p.categoria AS chave, COUNT(*) AS produtos, SUM(p.estoque_atual) AS unidades,
+                      ROUND(SUM({VALOR_CUSTO}), 2) AS valor_custo,
+                      ROUND(SUM(p.estoque_atual * p.preco_venda), 2) AS valor_venda
+               FROM produtos p WHERE p.ativo = 1 GROUP BY p.categoria ORDER BY valor_custo DESC""")),
         "produtos": dicts(c.db.execute(
-            """SELECT id, codigo, nome, marca, categoria, condicao, estoque_atual, estoque_minimo, preco_custo,
-                      preco_venda, ROUND(estoque_atual * preco_custo, 2) AS valor_custo,
-                      ROUND(estoque_atual * preco_venda, 2) AS valor_venda,
+            f"""SELECT p.id, p.codigo, p.nome, p.marca, p.categoria, p.condicao, p.estoque_atual, p.estoque_minimo,
+                      p.preco_custo, p.preco_venda, ROUND({VALOR_CUSTO}, 2) AS valor_custo,
+                      ROUND(p.estoque_atual * p.preco_venda, 2) AS valor_venda,
                       (SELECT MAX(m.data) FROM itens i JOIN movimentacoes m ON m.id = i.movimentacao_id
-                       WHERE i.produto_id = produtos.id AND m.tipo = 'saida' AND m.cancelada = 0) AS ultima_saida
-               FROM produtos WHERE ativo = 1 ORDER BY nome""")),
+                       WHERE i.produto_id = p.id AND m.tipo = 'saida' AND m.cancelada = 0) AS ultima_saida
+               FROM produtos p WHERE p.ativo = 1 ORDER BY p.nome""")),
     }
 
 
@@ -1827,7 +2263,7 @@ def relatorio_movimentacoes(c):
         "por_motivo": dicts(c.db.execute(
             """SELECT m.tipo, m.motivo, COUNT(DISTINCT m.id) AS lancamentos, SUM(i.quantidade) AS quantidade,
                       ROUND(SUM(i.quantidade * i.valor_unitario), 2) AS valor,
-                      ROUND(SUM(i.quantidade * i.custo_unitario), 2) AS custo
+                      ROUND(SUM(i.custo_total), 2) AS custo
                FROM movimentacoes m JOIN itens i ON i.movimentacao_id = m.id
                WHERE m.cancelada = 0 AND date(m.data) BETWEEN ? AND ?
                GROUP BY m.tipo, m.motivo ORDER BY m.tipo, quantidade DESC""", args)),
@@ -1838,7 +2274,7 @@ def relatorio_movimentacoes(c):
                       SUM(CASE WHEN m.tipo = 'saida' AND m.motivo <> 'Venda' THEN i.quantidade ELSE 0 END)
                         AS outras_saidas,
                       ROUND(SUM(CASE WHEN m.tipo = 'saida' AND m.motivo IN ('Perda/Avaria')
-                                     THEN i.quantidade * i.custo_unitario ELSE 0 END), 2) AS custo_perdas
+                                     THEN i.custo_total ELSE 0 END), 2) AS custo_perdas
                FROM itens i JOIN movimentacoes m ON m.id = i.movimentacao_id
                JOIN produtos p ON p.id = i.produto_id
                WHERE m.cancelada = 0 AND date(m.data) BETWEEN ? AND ?
@@ -2084,6 +2520,31 @@ def gerar_demo(caminho):
     capa = um(db, "SELECT id FROM produtos WHERE codigo = 'ACC-PELIC-3D'")
     registrar_movimentacao(db, admin, {"tipo": "saida", "motivo": "Perda/Avaria", "observacao": "Quebrou na aplicação",
                                        "itens": [{"produto_id": capa["id"], "quantidade": 2}]})
+
+    # localização na loja
+    for cod, local in [("SAM-A15-128-PT", "Vitrine 1"), ("SAM-S24-256-CZ", "Cofre"), ("APL-IP15-128-AZ", "Cofre"),
+                       ("MOT-G54-256-VD", "Vitrine 1"), ("XIA-RN13-256-PT", "Vitrine 2"), ("ACC-CAPA-A15", "Parede A"),
+                       ("ACC-PELIC-3D", "Gaveta 1"), ("ACC-CARR-25W", "Parede B"), ("ACC-FONE-BT", "Parede B"),
+                       ("PEC-TELA-A15", "Bancada técnica")]:
+        db.execute("UPDATE produtos SET localizacao = ? WHERE codigo = ?", (local, cod))
+    # seminovos: cada aparelho com o seu custo
+    db.execute("""INSERT INTO produtos (codigo, nome, marca, modelo, categoria, cor, armazenamento, condicao, controla_imei,
+                  preco_custo, preco_venda, estoque_minimo, localizacao, criado_em)
+                  VALUES ('SN-IP13-128', 'iPhone 13 128GB Seminovo', 'Apple', 'iPhone 13', 'Smartphone', 'Variadas', '128GB',
+                  'Seminovo', 1, 0, 3299, 1, 'Cofre', ?)""", (agora(),))
+    db.execute("""INSERT INTO produtos (codigo, nome, marca, categoria, condicao, preco_custo, preco_venda, estoque_minimo,
+                  localizacao, criado_em) VALUES ('ACC-CAPA-IP8', 'Capa couro iPhone 8', 'Genérica', 'Acessório', 'Novo',
+                  18, 59.9, 0, 'Estoque fundo', ?)""", (agora(),))
+    db.commit()
+    sn = um(db, "SELECT id FROM produtos WHERE codigo = 'SN-IP13-128'")
+    registrar_movimentacao(db, admin, {"tipo": "entrada", "motivo": "Compra", "documento": "Compra de clientes",
+                                       "itens": [{"produto_id": sn["id"], "quantidade": 3,
+                                                  "imeis": [gerar_imei() for _ in range(3)], "custos": [2150, 2400, 1980]}]},
+                           (hoje - dt.timedelta(days=20)).strftime("%Y-%m-%d %H:%M:%S"))
+    cp8 = um(db, "SELECT id FROM produtos WHERE codigo = 'ACC-CAPA-IP8'")
+    registrar_movimentacao(db, admin, {"tipo": "entrada", "motivo": "Compra", "fornecedor_id": 2, "documento": "NF 880",
+                                       "itens": [{"produto_id": cp8["id"], "quantidade": 25, "valor_unitario": 18}]},
+                           (hoje - dt.timedelta(days=210)).strftime("%Y-%m-%d %H:%M:%S"))
 
     # financeiro: despesas fixas do mês passado (pagas) e deste mês (em aberto)
     hoje_d = dt.date.today()

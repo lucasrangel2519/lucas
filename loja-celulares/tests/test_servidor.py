@@ -299,6 +299,78 @@ class TesteSistema(unittest.TestCase):
                  itens=[{"produto_id": p["id"], "quantidade": 1}])
         self.adm.req("PUT", "/api/config", {"exigir_caixa": "0"})
 
+    def test_custo_por_aparelho_e_valor_do_estoque(self):
+        p = self.produto(nome="iPhone 12 seminovo", categoria="Smartphone", condicao="Seminovo", controla_imei=True,
+                         preco_venda=2500)
+        imeis = ["352099001761481", "356938035643817", "490154203237526"]
+        imeis = [i for i in imeis if servidor.imei_valido(i)] or imeis
+        validos = []
+        base = 35209900176148
+        while len(validos) < 3:  # gera IMEIs válidos
+            for d in range(10):
+                if servidor.imei_valido(f"{base}{d}"):
+                    validos.append(f"{base}{d}")
+            base += 1
+        ent = self.mov(tipo="entrada", motivo="Compra",
+                       itens=[{"produto_id": p["id"], "quantidade": 3, "imeis": validos, "custos": [1500, 1700, 2000]}])
+        self.assertEqual(ent["total"], 5200)
+        e = self.estoque(p["id"])
+        self.assertAlmostEqual(e["preco_custo"], 1733.33)
+        st, lista = self.adm.req("GET", "/api/produtos?q=iPhone+12+seminovo")
+        self.assertEqual(lista[0]["valor_custo"], 5200)  # soma exata do custo de cada aparelho
+        v = self.mov(tipo="saida", motivo="Venda", forma_pagamento="PIX",
+                     itens=[{"produto_id": p["id"], "quantidade": 1, "imeis": [validos[2]], "valor_unitario": 2500}])
+        self.assertEqual(v["itens"][0]["custo_unitario"], 2000)  # lucro real deste aparelho: 500
+        st, lista = self.adm.req("GET", "/api/produtos?q=iPhone+12+seminovo")
+        self.assertEqual(lista[0]["valor_custo"], 3200)
+        self.assertAlmostEqual(self.estoque(p["id"])["preco_custo"], 1600)
+        st, f = self.adm.req("GET", f"/api/produtos/{p['id']}/ficha")
+        self.assertEqual([(k["saldo_qtd"], k["saldo_valor"]) for k in f["kardex"]], [(3, 5200), (2, 3200)])
+        self.assertEqual(sorted(cm["custo"] for cm in f["camadas"]), [1500, 1700])
+        st, painel = self.adm.req("GET", "/api/estoque/painel")
+        self.assertEqual(st, 200)
+        linha = next(x for x in painel["produtos"] if x["id"] == p["id"])
+        self.assertEqual((linha["valor_custo"], linha["valor_venda"], linha["lucro_potencial"]), (3200, 5000, 1800))
+        self.assertIn(linha["classe"], ("A", "B", "C"))
+        self.assertAlmostEqual(sum(f_["valor"] for f_ in painel["faixas"]), painel["resumo"]["valor_custo"], places=1)
+        self.assertEqual(self.adm.req("GET", "/api/estoque/painel")[0], 200)
+
+    def test_inventario(self):
+        a = self.produto(nome="Capinha inventário", categoria="Outro", preco_custo=10)
+        b = self.produto(nome="Fone inventário", categoria="Outro", preco_custo=30)
+        cel = self.produto(nome="Cel inventário", categoria="Outro", controla_imei=True, preco_custo=500)
+        self.mov(tipo="entrada", motivo="Compra", itens=[{"produto_id": a["id"], "quantidade": 10, "valor_unitario": 10},
+                                                         {"produto_id": b["id"], "quantidade": 5, "valor_unitario": 30}])
+        im = []
+        base = 35391805232345
+        while len(im) < 2:
+            for d in range(10):
+                if servidor.imei_valido(f"{base}{d}") and len(im) < 2:
+                    im.append(f"{base}{d}")
+            base += 7
+        self.mov(tipo="entrada", motivo="Compra", itens=[{"produto_id": cel["id"], "quantidade": 2, "imeis": im, "valor_unitario": 500}])
+        self.adm.req("POST", "/api/inventarios/0/cancelar", {})
+        st, abertos = self.adm.req("GET", "/api/inventarios")
+        for v in abertos:
+            if v["status"] == "aberto":
+                self.adm.req("POST", f"/api/inventarios/{v['id']}/cancelar", {})
+        st, inv = self.adm.req("POST", "/api/inventarios", {"categoria": "Outro"})
+        self.assertEqual(st, 200, inv)
+        self.assertEqual(self.adm.req("POST", "/api/inventarios", {})[0], 400)  # só um aberto por vez
+        st, inv = self.adm.req("PUT", f"/api/inventarios/{inv['id']}/contagem", {"itens": [
+            {"produto_id": a["id"], "contado": 8}, {"produto_id": b["id"], "contado": 6},
+            {"produto_id": cel["id"], "imeis": [im[0]]}]})
+        r = inv["resumo"]
+        self.assertEqual((r["falta_unidades"], r["sobra_unidades"]), (3, 1))
+        self.assertAlmostEqual(r["falta_valor"], 520)  # 2 capinhas (20) + 1 celular (500)
+        self.assertAlmostEqual(r["sobra_valor"], 30)
+        st, inv = self.adm.req("POST", f"/api/inventarios/{inv['id']}/finalizar", {})
+        self.assertEqual((st, inv["status"]), (200, "finalizado"), inv)
+        self.assertEqual(self.estoque(a["id"])["estoque_atual"], 8)
+        self.assertEqual(self.estoque(b["id"])["estoque_atual"], 6)
+        self.assertEqual(self.estoque(cel["id"])["imeis_disponiveis"], [im[0]])
+        self.assertEqual(self.adm.req("POST", f"/api/inventarios/{inv['id']}/finalizar", {})[0], 400)
+
     def test_estatico_sem_travessia(self):
         st, _ = self.adm.req("GET", "/../servidor.py")
         self.assertEqual(st, 404)

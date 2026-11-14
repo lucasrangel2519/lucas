@@ -322,7 +322,7 @@ async function paginaPainel(_, __, vivo) {
       <div class="kpi"><span>Faturamento do mês</span><strong>${brl(d.mes.faturamento)}</strong><small>${num(d.mes.vendas)} vendas · ticket ${brl(d.mes.ticket_medio)}</small></div>
       ${ehAdmin() ? `<div class="kpi bom"><span>Lucro bruto do mês</span><strong>${brl(d.mes.lucro)}</strong><small>Margem de ${pct(d.mes.margem)}</small></div>` : ''}
       <div class="kpi"><span>Unidades em estoque</span><strong>${num(e.unidades)}</strong><small>${num(e.produtos)} produtos ativos</small></div>
-      ${ehAdmin() ? `<div class="kpi"><span>Estoque a preço de custo</span><strong>${brl(e.valor_custo)}</strong><small>A preço de venda: ${brl(e.valor_venda)}</small></div>` : ''}
+      ${ehAdmin() ? `<a class="kpi kpi-link destaque-kpi" href="#/estoque"><span>Valor investido em estoque</span><strong>${brl(e.valor_custo)}</strong><small>A preço de venda: ${brl(e.valor_venda)} · ver análise →</small></a>` : ''}
       <div class="kpi ${e.abaixo_minimo ? 'alerta' : ''}"><span>Abaixo do mínimo</span><strong>${num(e.abaixo_minimo)}</strong><small>${num(e.zerados)} produto(s) zerado(s)</small></div>
     </div>
     <div class="kpis">
@@ -362,6 +362,7 @@ function camposProduto() {
     { n: 'preco_custo', r: 'Preço de custo (R$)', attrs: 'inputmode="decimal"' },
     { n: 'preco_venda', r: 'Preço de venda (R$)', attrs: 'inputmode="decimal"' },
     { n: 'estoque_minimo', r: 'Estoque mínimo', t: 'number', attrs: 'min="0" step="1"', ajuda: 'Avisa quando o estoque chegar nesse número.' },
+    { n: 'localizacao', r: 'Localização na loja', attrs: 'placeholder="Ex.: Vitrine 2, Gaveta A"', ajuda: 'Ajuda a achar o produto e organiza o inventário.' },
     { n: 'controla_imei', r: 'Controlar IMEI (um por aparelho)', t: 'check', ajuda: '' },
   ];
 }
@@ -399,18 +400,21 @@ const COLS_PRODUTO = () => [
   { r: 'Categoria', v: (p) => p.categoria },
   { r: 'Estoque', v: (p) => p.estoque_atual, h: (p) => `<span class="estoque ${p.estoque_atual === 0 ? 'zero' : p.estoque_atual <= p.estoque_minimo ? 'baixo' : ''}">${num(p.estoque_atual)}</span>`, cls: 'num' },
   { r: 'Mínimo', v: (p) => p.estoque_minimo, cls: 'num' },
-  ...(ehAdmin() ? [{ r: 'Custo', v: (p) => p.preco_custo, h: (p) => brl(p.preco_custo), cls: 'num' }] : []),
+  { r: 'Local', v: (p) => p.localizacao || '' },
+  ...(ehAdmin() ? [{ r: 'Custo médio', v: (p) => p.preco_custo, h: (p) => brl(p.preco_custo), cls: 'num' },
+    { r: 'Valor em estoque', v: (p) => p.valor_custo, h: (p) => `<strong>${brl(p.valor_custo)}</strong>`, cls: 'num' }] : []),
   { r: 'Venda', v: (p) => p.preco_venda, h: (p) => brl(p.preco_venda), cls: 'num' },
   ...(ehAdmin() ? [{ r: 'Margem', v: (p) => (p.preco_venda ? Math.round(((p.preco_venda - p.preco_custo) / p.preco_venda) * 1000) / 10 : 0), h: (p) => (p.preco_venda ? pct(((p.preco_venda - p.preco_custo) / p.preco_venda) * 100) : '—'), cls: 'num' }] : []),
 ];
 
 async function paginaProdutos(_, q) {
-  const f = { q: q.get('q') || '', categoria: q.get('categoria') || '', baixo: q.get('baixo') === '1', todos: false };
+  const f = { q: q.get('q') || '', categoria: q.get('categoria') || '', baixo: q.get('baixo') === '1', todos: false, ordem: ehAdmin() ? 'valor' : 'nome' };
   $('#conteudo').innerHTML = `
     <div class="ferramentas">
       <label class="busca">Buscar<input type="search" id="f-q" placeholder="Nome, marca, código ou IMEI" value="${esc(f.q)}"></label>
       <label>Categoria<select id="f-cat"><option value="">Todas</option>${estado.meta.categorias.map((c) => `<option ${c === f.categoria ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="check"><input type="checkbox" id="f-baixo" ${f.baixo ? 'checked' : ''}> Só abaixo do mínimo</label>
+      <label>Ordenar<select id="f-ord"><option value="nome">Nome</option>${ehAdmin() ? `<option value="valor" ${f.ordem === 'valor' ? 'selected' : ''}>Valor em estoque</option>` : ''}<option value="qtd">Quantidade</option><option value="local">Localização</option></select></label>
       <label class="check"><input type="checkbox" id="f-todos"> Mostrar inativos</label>
       <span class="espaco"></span>
       <button class="btn" id="b-csv">Exportar CSV</button>
@@ -419,9 +423,12 @@ async function paginaProdutos(_, q) {
     <section class="cartao sem-pad" id="lista-produtos"><div class="carregando">Carregando…</div></section>`;
   let linhas = [];
   const carregar = async () => {
-    linhas = await api('GET', `/api/produtos${qs(f)}`);
+    linhas = await api('GET', `/api/produtos${qs({ ...f, ordem: undefined })}`);
     const tot = linhas.reduce((a, p) => a + p.estoque_atual, 0);
-    $('#lista-produtos').innerHTML = `<div class="cartao-cab"><h2>${num(linhas.length)} produto(s) <small>${num(tot)} unidades</small></h2></div>${tabela(COLS_PRODUTO(), linhas, { clique: true, vazio: 'Nenhum produto encontrado.' })}`;
+    const valor = linhas.reduce((a, p) => a + (p.valor_custo || 0), 0);
+    const ordens = { nome: (a, b) => a.nome.localeCompare(b.nome), valor: (a, b) => (b.valor_custo || 0) - (a.valor_custo || 0), qtd: (a, b) => b.estoque_atual - a.estoque_atual, local: (a, b) => (a.localizacao || '~').localeCompare(b.localizacao || '~') };
+    linhas.sort(ordens[f.ordem] || ordens.nome);
+    $('#lista-produtos').innerHTML = `<div class="cartao-cab"><h2>${num(linhas.length)} produto(s) <small>${num(tot)} unidades${ehAdmin() ? ` · ${brl(valor)} investidos` : ''}</small></h2>${ehAdmin() ? '<a href="#/estoque">Análise do valor do estoque →</a>' : ''}</div>${tabela(COLS_PRODUTO(), linhas, { clique: true, vazio: 'Nenhum produto encontrado.' })}`;
     ligarCliques($('#lista-produtos'), linhas, (p) => { location.hash = `#/produtos/${p.id}`; });
   };
   let t;
@@ -429,6 +436,7 @@ async function paginaProdutos(_, q) {
   $('#f-cat').addEventListener('change', (e) => { f.categoria = e.target.value; carregar(); });
   $('#f-baixo').addEventListener('change', (e) => { f.baixo = e.target.checked; carregar(); });
   $('#f-todos').addEventListener('change', (e) => { f.todos = e.target.checked; carregar(); });
+  $('#f-ord').addEventListener('change', (e) => { f.ordem = e.target.value; carregar(); });
   $('#b-csv').addEventListener('click', () => baixarCSV('produtos', COLS_PRODUTO(), linhas));
   $('#b-novo')?.addEventListener('click', () => formProduto(null, (p) => { location.hash = `#/produtos/${p.id}`; }));
   await carregar();
@@ -440,7 +448,7 @@ async function paginaProduto(id, _, vivo) {
   $('#titulo-pagina').textContent = p.nome;
   const info = [
     ['Código', p.codigo || '—'], ['Categoria', p.categoria], ['Marca', p.marca || '—'], ['Modelo', p.modelo || '—'],
-    ['Armazenamento', p.armazenamento || '—'], ['Cor', p.cor || '—'], ['Condição', p.condicao], ['Controla IMEI', p.controla_imei ? 'Sim' : 'Não'],
+    ['Armazenamento', p.armazenamento || '—'], ['Cor', p.cor || '—'], ['Condição', p.condicao], ['Controla IMEI', p.controla_imei ? 'Sim' : 'Não'], ['Localização', p.localizacao || '—'],
     ...(ehAdmin() ? [['Custo médio', brl(p.preco_custo)]] : []), ['Preço de venda', brl(p.preco_venda)], ['Estoque mínimo', num(p.estoque_minimo)], ['Situação', p.ativo ? 'Ativo' : 'Inativo'],
   ];
   const colsMov = [
@@ -461,7 +469,8 @@ async function paginaProduto(id, _, vivo) {
     <div class="kpis">
       <div class="kpi ${p.estoque_atual <= p.estoque_minimo ? 'alerta' : ''}"><span>Em estoque</span><strong>${num(p.estoque_atual)}</strong><small>Mínimo: ${num(p.estoque_minimo)}</small></div>
       <div class="kpi"><span>Preço de venda</span><strong>${brl(p.preco_venda)}</strong>${ehAdmin() ? `<small>Margem ${p.preco_venda ? pct(((p.preco_venda - p.preco_custo) / p.preco_venda) * 100) : '—'}</small>` : ''}</div>
-      ${ehAdmin() ? `<div class="kpi"><span>Valor em estoque (custo)</span><strong>${brl(p.estoque_atual * p.preco_custo)}</strong></div>` : ''}
+      ${ehAdmin() ? `<div class="kpi destaque-kpi"><span>Valor investido (custo)</span><strong>${brl(p.valor_custo)}</strong><small>custo médio ${brl(p.preco_custo)}</small></div>
+      <div class="kpi bom"><span>Lucro potencial</span><strong>${brl(p.estoque_atual * p.preco_venda - p.valor_custo)}</strong><small>vendendo tudo a ${brl(p.preco_venda)}</small></div>` : ''}
     </div>
     <div class="duas-col">
       <section class="cartao"><div class="cartao-cab"><h2>Dados do produto</h2></div>
@@ -469,8 +478,9 @@ async function paginaProduto(id, _, vivo) {
       ${p.controla_imei ? `<section class="cartao"><div class="cartao-cab"><h2>IMEIs em estoque <small>${p.imeis_disponiveis.length}</small></h2></div>
         ${p.imeis_disponiveis.length ? `<div class="imeis-lista">${p.imeis_disponiveis.map((i) => `<span class="imei-op">${esc(i)}</span>`).join('')}</div>` : '<p class="sutil">Nenhum aparelho em estoque.</p>'}</section>` : '<div></div>'}
     </div>
-    ${cartaoTabela('hist-prod', 'Histórico de movimentações', colsMov, p.movimentacoes, { clique: true, vazio: 'Sem movimentações.', classeLinha: (m) => (m.cancelada ? 'cancelada' : '') })}`;
-  ligarCliques($('#hist-prod'), p.movimentacoes, (m) => { location.hash = `#/movimentacoes/${m.id}`; });
+    ${ehAdmin() ? '<div id="ficha-prod" style="display:grid;gap:18px"><div class="carregando">Carregando ficha de estoque…</div></div>' : cartaoTabela('hist-prod', 'Histórico de movimentações', colsMov, p.movimentacoes, { clique: true, vazio: 'Sem movimentações.', classeLinha: (m) => (m.cancelada ? 'cancelada' : '') })}`;
+  if ($('#hist-prod')) ligarCliques($('#hist-prod'), p.movimentacoes, (m) => { location.hash = `#/movimentacoes/${m.id}`; });
+  if ($('#ficha-prod')) fichaProduto(p, $('#ficha-prod')).catch((e) => { $('#ficha-prod').innerHTML = `<div class="faixa faixa-perigo">${esc(e.message)}</div>`; });
   $('#b-editar')?.addEventListener('click', () => formProduto(p, () => rotear()));
   $('#b-excluir')?.addEventListener('click', async () => {
     if (!confirm(`Excluir "${p.nome}"? Se já tiver movimentações, o produto será apenas desativado.`)) return;
@@ -524,9 +534,11 @@ async function paginaLancamento(tipo, q) {
 
   const valorPadrao = (p) => (ehVenda() ? p.preco_venda : p.preco_custo);
   const qtdItem = (it) => (it.p.controla_imei ? it.imeis.length : it.quantidade);
+  const individual = (it) => ehEntrada && L.motivo === 'Compra' && it.p.controla_imei && it.custoIndividual;
+  const totalItem = (it) => (individual(it) ? it.imeis.reduce((a, im) => a + (it.custos[im] ?? it.valor), 0) : qtdItem(it) * it.valor);
 
   function atualizarTotais() {
-    const sub = L.itens.reduce((a, it) => a + qtdItem(it) * it.valor, 0);
+    const sub = L.itens.reduce((a, it) => a + totalItem(it), 0);
     const desc = ehVenda() ? Math.min(L.desconto, sub) : 0;
     const total = sub - desc;
     $('#t-itens').textContent = num(L.itens.reduce((a, it) => a + qtdItem(it), 0));
@@ -546,7 +558,7 @@ async function paginaLancamento(tipo, q) {
     $('#w-parc-info').hidden = !aPrazo || np < 2;
     $('#w-parc-info').textContent = `${np}× de ${brl((sub - desc) / np)}`;
     $('#w-desc').hidden = !ehVenda();
-    $$('#itens [data-sub]').forEach((el) => { const it = L.itens[+el.dataset.sub]; el.textContent = brl(qtdItem(it) * it.valor); });
+    $$('#itens [data-sub]').forEach((el) => { const it = L.itens[+el.dataset.sub]; el.textContent = brl(totalItem(it)); });
     $$('#itens [data-qtdimei]').forEach((el) => { el.textContent = num(L.itens[+el.dataset.qtdimei].imeis.length); });
   }
 
@@ -559,13 +571,15 @@ async function paginaLancamento(tipo, q) {
         let imeis = '';
         if (p.controla_imei) {
           imeis = ehEntrada
-            ? `<div class="imeis-caixa"><small>IMEIs (um por linha, 15 dígitos)</small><textarea data-imeis="${i}" placeholder="Leia ou digite os IMEIs">${esc(it.imeis.join('\n'))}</textarea></div>`
+            ? `<div class="imeis-caixa"><small>IMEIs (um por linha, 15 dígitos)</small><textarea data-imeis="${i}" placeholder="Leia ou digite os IMEIs">${esc(it.imeis.join('\n'))}</textarea>
+               ${L.motivo === 'Compra' ? `<label class="check"><input type="checkbox" data-indiv="${i}" ${it.custoIndividual ? 'checked' : ''}> Custo diferente para cada aparelho (seminovos, compra de cliente)</label>` : ''}
+               ${individual(it) ? `<div class="custos-imei">${it.imeis.map((im) => `<label><span class="mono">${esc(im)}</span><input inputmode="decimal" data-custoimei="${i}" data-im="${esc(im)}" value="${String((it.custos[im] ?? it.valor).toFixed(2)).replace('.', ',')}"></label>`).join('') || '<small class="sutil">Informe os IMEIs acima.</small>'}</div>` : ''}</div>`
             : `<div class="imeis-caixa"><small>Selecione os aparelhos (IMEI) — ${p.imeis_disponiveis.length} em estoque</small>${p.imeis_disponiveis.length > 8 ? `<input type="search" data-filtroimei="${i}" placeholder="Filtrar IMEI…">` : ''}
                <div class="imeis-lista">${p.imeis_disponiveis.map((im) => `<label class="imei-op"><input type="checkbox" data-imei="${i}" value="${esc(im)}" ${it.imeis.includes(im) ? 'checked' : ''}>${esc(im)}</label>`).join('')}</div></div>`;
         }
         return `<tr class="item-linha"><td><div class="celula-produto"><strong>${esc(p.nome)}</strong><small>${esc(p.codigo || '')} · estoque ${num(p.estoque_atual)}</small></div>${imeis}</td>
           <td class="num">${p.controla_imei ? `<strong data-qtdimei="${i}">${num(it.imeis.length)}</strong>` : `<input class="qtd" type="number" min="1" step="1" ${ehEntrada ? '' : `max="${p.estoque_atual}"`} data-qtd="${i}" value="${it.quantidade}">`}</td>
-          <td class="num"><input class="valor" inputmode="decimal" data-valor="${i}" value="${String(it.valor.toFixed(2)).replace('.', ',')}"></td>
+          <td class="num">${individual(it) ? '<small class="sutil">por aparelho</small>' : `<input class="valor" inputmode="decimal" data-valor="${i}" value="${String(it.valor.toFixed(2)).replace('.', ',')}">`}</td>
           <td class="num" data-sub="${i}"></td>
           <td><button class="btn btn-fantasma btn-p" data-remover="${i}" title="Remover" aria-label="Remover">✕</button></td></tr>`;
       }).join('')}</tbody></table></div>`;
@@ -573,6 +587,9 @@ async function paginaLancamento(tipo, q) {
     $$('[data-valor]', el).forEach((inp) => inp.addEventListener('input', () => { L.itens[+inp.dataset.valor].valor = paraNumero(inp.value); atualizarTotais(); }));
     $$('[data-remover]', el).forEach((b) => b.addEventListener('click', () => { L.itens.splice(+b.dataset.remover, 1); desenharItens(); }));
     $$('[data-imeis]', el).forEach((ta) => ta.addEventListener('input', () => { L.itens[+ta.dataset.imeis].imeis = ta.value.split(/[\s,;]+/).map((s) => s.replace(/\D/g, '')).filter(Boolean); atualizarTotais(); }));
+    $$('[data-imeis]', el).forEach((ta) => ta.addEventListener('change', () => { if (individual(L.itens[+ta.dataset.imeis])) { desenharItens(); } }));
+    $$('[data-indiv]', el).forEach((cb) => cb.addEventListener('change', () => { const it = L.itens[+cb.dataset.indiv]; it.custoIndividual = cb.checked; it.custos = it.custos || {}; desenharItens(); }));
+    $$('[data-custoimei]', el).forEach((inp) => inp.addEventListener('input', () => { L.itens[+inp.dataset.custoimei].custos[inp.dataset.im] = paraNumero(inp.value); atualizarTotais(); }));
     $$('[data-imei]', el).forEach((cb) => cb.addEventListener('change', () => {
       const it = L.itens[+cb.dataset.imei];
       it.imeis = cb.checked ? [...new Set([...it.imeis, cb.value])] : it.imeis.filter((x) => x !== cb.value);
@@ -592,7 +609,7 @@ async function paginaLancamento(tipo, q) {
     if (it) {
       if (!p.controla_imei) it.quantidade += 1;
     } else {
-      it = { p, quantidade: 1, valor: valorPadrao(p), imeis: [] };
+      it = { p, quantidade: 1, valor: valorPadrao(p), imeis: [], custos: {}, custoIndividual: false };
       L.itens.push(it);
     }
     if (p.controla_imei && imeiBuscado && !it.imeis.includes(imeiBuscado)) {
@@ -654,7 +671,7 @@ async function paginaLancamento(tipo, q) {
   $('#l-motivo').addEventListener('change', (e) => {
     const eraVenda = ehVenda();
     L.motivo = e.target.value;
-    if (eraVenda !== ehVenda()) { L.itens.forEach((it) => { it.valor = valorPadrao(it.p); }); desenharItens(); } else atualizarTotais();
+    if (eraVenda !== ehVenda()) { L.itens.forEach((it) => { it.valor = valorPadrao(it.p); }); desenharItens(); } else if (ehEntrada) desenharItens(); else atualizarTotais();
   });
   $('#l-forma').addEventListener('change', (e) => { L.forma = e.target.value; atualizarTotais(); });
   $('#l-cond').addEventListener('change', atualizarTotais);
@@ -683,7 +700,7 @@ async function paginaLancamento(tipo, q) {
       orcamento_id: L.orcamento_id || null,
       desconto: ehVenda() ? L.desconto : 0, documento: $('#l-doc').value, observacao: $('#l-obs').value,
       [ehEntrada ? 'fornecedor_id' : 'cliente_id']: $('#l-parceiro').value || null,
-      itens: L.itens.map((it) => ({ produto_id: it.p.id, quantidade: qtdItem(it), valor_unitario: it.valor, imeis: it.imeis })),
+      itens: L.itens.map((it) => ({ produto_id: it.p.id, quantidade: qtdItem(it), valor_unitario: it.valor, imeis: it.imeis, ...(individual(it) ? { custos: it.imeis.map((im) => it.custos[im] ?? it.valor) } : {}) })),
     };
     const semImei = L.itens.find((it) => it.p.controla_imei && !it.imeis.length);
     if (semImei) { $('#l-erro').textContent = `Informe o(s) IMEI(s) de ${semImei.p.nome}.`; return; }

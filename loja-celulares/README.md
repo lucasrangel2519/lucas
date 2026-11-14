@@ -39,6 +39,27 @@ Não exponha o sistema direto na internet.
 
 ## O que o sistema faz
 
+### Valor do estoque (foco principal)
+- **Valor investido** (quanto dinheiro está parado em produtos, a preço de custo), **valor de venda** e **lucro potencial** do estoque inteiro e de cada produto.
+- **Custo real de cada aparelho**: em celulares, o custo é guardado por IMEI. Isso vale principalmente para seminovos comprados de clientes, em que cada unidade custa diferente. O valor do estoque e o lucro de cada venda usam o custo daquele aparelho, não uma média.
+- **Onde está o dinheiro**: valor por categoria, por marca e por condição (novo ou seminovo), com a % de cada um.
+- **Curva ABC**: os poucos produtos que concentram 80% do dinheiro (A), os seguintes (B) e os de pouco valor (C).
+- **Idade do estoque**: quanto tempo cada unidade está na loja (até 30, 31 a 60, 61 a 90, 91 a 180 e mais de 180 dias). Também mostra quanto dinheiro está **parado há mais de 90 dias** sem venda.
+- **Cobertura**: quantos dias o estoque dura no ritmo de vendas dos últimos 90 dias.
+- **Evolução do valor investido** nos últimos 90 dias, além do que foi comprado, do custo do que saiu em vendas e das perdas do mês.
+- Tabela detalhada por produto com filtros (parados, classe A, abaixo do mínimo, zerados), várias ordenações e exportação para Excel.
+
+### Ficha do produto
+- **Kardex**: cada entrada e saída com o saldo em quantidade, o saldo em R$ e o custo médio depois de cada movimento.
+- **Unidades em estoque**: para celulares, cada IMEI com a data de entrada, o fornecedor, há quantos dias está na loja, quanto custou e quanto dá de lucro se for vendido pelo preço atual. Para os demais produtos, mostra os lotes de compra que formam o saldo.
+
+### Inventário (contagem física)
+- Conte todo o estoque ou só uma categoria por vez.
+- Use o **leitor de código de barras**: cada leitura soma 1. Nos celulares, cada IMEI lido marca o aparelho como encontrado, e o sistema avisa se aparecer um IMEI que não estava cadastrado.
+- Faltas e sobras aparecem na hora, em unidades e em R$.
+- Ao finalizar, o sistema lança os **ajustes de inventário** e o estoque fica igual ao contado.
+- Folha de contagem pronta para imprimir, ordenada pela **localização** dos produtos na loja.
+
 ### Produtos e estoque
 - Cadastro com marca, modelo, armazenamento, cor, condição (novo, seminovo, vitrine, recondicionado), categoria, código de barras/SKU, preço de custo, preço de venda e estoque mínimo.
 - **Controle por IMEI** para aparelhos: cada celular entra e sai com o seu IMEI. O sistema confere os 15 dígitos e o dígito verificador, então pega erro de digitação.
@@ -114,6 +135,7 @@ servidor.py           servidor web + API + banco SQLite (Python puro)
 static/index.html     interface
 static/js/app.js      telas: painel, PDV, entrada, produtos, relatórios...
 static/js/modulos.js  telas: orçamentos, ordens de serviço, financeiro e caixa
+static/js/estoque.js  telas: valor do estoque, ficha (kardex) e inventário
 static/css/estilo.css visual (tema claro/escuro, celular e impressão)
 tests/                testes automatizados
 dados/estoque.db      seu banco de dados (criado no primeiro uso, fora do git)
