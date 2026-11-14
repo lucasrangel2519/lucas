@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Estoque da Loja</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='6' y='2' width='12' height='20' rx='3' fill='%234f46e5'/%3E%3Crect x='10' y='18' width='4' height='1.5' rx='.75' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+  <section id="tela-login" class="login" hidden>
+    <form id="form-login" class="login-caixa" autocomplete="on">
+      <div class="marca marca-grande"><span class="marca-icone" aria-hidden="true"></span><span>Estoque<b>Cel</b></span></div>
+      <p class="sutil">Controle de estoque, entradas, saídas e relatórios</p>
+      <label>Usuário <input name="login" autocomplete="username" required autofocus></label>
+      <label>Senha <input name="senha" type="password" autocomplete="current-password" required></label>
+      <p class="erro-form" id="erro-login" role="alert"></p>
+      <button class="btn btn-primario btn-largo" type="submit">Entrar</button>
+    </form>
+  </section>
+
+  <div id="app" class="app" hidden>
+    <aside class="lateral" id="lateral">
+      <div class="marca"><span class="marca-icone" aria-hidden="true"></span><span id="nome-loja-lateral">Estoque<b>Cel</b></span></div>
+      <nav class="menu" id="menu">
+        <a href="#/painel" data-rota="painel"><i class="ic ic-painel"></i>Painel</a>
+        <a href="#/saida" data-rota="saida" class="destaque"><i class="ic ic-venda"></i>Nova venda / saída</a>
+        <a href="#/entrada" data-rota="entrada"><i class="ic ic-entrada"></i>Nova entrada</a>
+        <a href="#/produtos" data-rota="produtos"><i class="ic ic-produto"></i>Produtos e estoque</a>
+        <a href="#/movimentacoes" data-rota="movimentacoes"><i class="ic ic-lista"></i>Movimentações</a>
+        <a href="#/relatorios" data-rota="relatorios"><i class="ic ic-relatorio"></i>Relatórios</a>
+        <a href="#/clientes" data-rota="clientes"><i class="ic ic-pessoa"></i>Clientes</a>
+        <a href="#/fornecedores" data-rota="fornecedores"><i class="ic ic-caminhao"></i>Fornecedores</a>
+        <a href="#/usuarios" data-rota="usuarios" data-admin><i class="ic ic-chave"></i>Usuários</a>
+        <a href="#/config" data-rota="config" data-admin><i class="ic ic-config"></i>Configurações</a>
+      </nav>
+      <div class="usuario-caixa">
+        <div><strong id="usuario-nome"></strong><small id="usuario-perfil"></small></div>
+        <div class="usuario-acoes">
+          <button class="btn btn-fantasma btn-p" id="btn-conta" type="button">Minha conta</button>
+          <button class="btn btn-fantasma btn-p" id="btn-sair" type="button">Sair</button>
+        </div>
+      </div>
+    </aside>
+    <div class="fundo-menu" id="fundo-menu"></div>
+    <main class="principal">
+      <header class="topo nao-imprimir">
+        <button class="btn btn-fantasma btn-menu" id="btn-menu" type="button" aria-label="Abrir menu">☰</button>
+        <h1 id="titulo-pagina">Painel</h1>
+      </header>
+      <div id="conteudo" class="conteudo"></div>
+    </main>
+  </div>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-caixa" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+      <header><h2 id="modal-titulo"></h2><button class="btn btn-fantasma" type="button" data-fechar aria-label="Fechar">✕</button></header>
+      <div id="modal-corpo" class="modal-corpo"></div>
+    </div>
+  </div>
+  <div id="avisos" class="avisos" aria-live="polite"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
