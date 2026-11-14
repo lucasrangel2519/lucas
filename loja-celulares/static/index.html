@@ -2,7 +2,14 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#151a2d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Estoque">
+  <link rel="apple-touch-icon" href="img/icone-180.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <title>Estoque da Loja</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='6' y='2' width='12' height='20' rx='3' fill='%234f46e5'/%3E%3Crect x='10' y='18' width='4' height='1.5' rx='.75' fill='white'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/estilo.css">
@@ -16,6 +23,18 @@
       <label>Senha <input name="senha" type="password" autocomplete="current-password" required></label>
       <p class="erro-form" id="erro-login" role="alert"></p>
       <button class="btn btn-primario btn-largo" type="submit">Entrar</button>
+    </form>
+  </section>
+
+  <section id="tela-senha" class="login" hidden>
+    <form id="form-senha" class="login-caixa" autocomplete="on">
+      <div class="marca marca-grande"><span class="marca-icone" aria-hidden="true"></span><span>Crie sua senha</span></div>
+      <p class="sutil">Por segurança, troque a senha provisória antes de começar. Use pelo menos 8 caracteres, misturando letras e números.</p>
+      <label id="w-senha-atual">Senha atual (provisória) <input name="atual" type="password" autocomplete="current-password"></label>
+      <label>Nova senha <input name="nova" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Repita a nova senha <input name="confirma" type="password" autocomplete="new-password" minlength="8" required></label>
+      <p class="erro-form" id="erro-senha" role="alert"></p>
+      <button class="btn btn-primario btn-largo" type="submit">Salvar e entrar</button>
     </form>
   </section>
 

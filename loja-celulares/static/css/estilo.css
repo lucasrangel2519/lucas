@@ -308,6 +308,14 @@ tr.linha-alerta td:first-child { box-shadow: inset 3px 0 0 var(--perigo); }
 .imei-op.imei-extra { border-style: dashed; border-color: var(--alerta); }
 .cartao-cab .ferramentas select, .cartao-cab .ferramentas input { width: auto; }
 
+/* ----- iPhone / app na tela de início ----- */
+.lateral { padding-top: max(18px, env(safe-area-inset-top)); padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+.avisos { bottom: max(16px, env(safe-area-inset-bottom)); }
+@media (pointer: coarse) {
+  /* o Safari dá zoom em campos com fonte menor que 16px */
+  input, select, textarea { font-size: 16px; }
+}
+
 /* ----- responsivo ----- */
 @media (max-width: 1280px) {
   .duas-iguais { grid-template-columns: minmax(0, 1fr); }
@@ -321,7 +329,7 @@ tr.linha-alerta td:first-child { box-shadow: inset 3px 0 0 var(--perigo); }
   .app.menu-aberto .lateral { transform: none; }
   .app.menu-aberto .fundo-menu { display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, .4); z-index: 25; }
   .topo .btn-menu { display: inline-flex; }
-  .topo { padding: 12px 16px 4px; }
+  .topo { padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 4px max(16px, env(safe-area-inset-left)); position: sticky; top: 0; z-index: 20; background: var(--fundo); }
   .topo h1 { font-size: 19px; }
   .conteudo { padding: 10px 16px 32px; }
   .duas-iguais { grid-template-columns: minmax(0, 1fr); }

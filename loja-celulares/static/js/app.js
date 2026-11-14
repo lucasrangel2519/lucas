@@ -169,12 +169,37 @@ function abrirForm({ titulo, campos, valores = {}, salvar, textoBotao = 'Salvar'
 function mostrarLogin() {
   estado.usuario = null;
   $('#app').hidden = true;
+  $('#tela-senha').hidden = true;
   $('#tela-login').hidden = false;
   fecharModal();
   setTimeout(() => $('#form-login [name=login]').focus(), 20);
 }
 
+function pedirNovaSenha() {
+  $('#tela-login').hidden = true;
+  $('#app').hidden = true;
+  $('#tela-senha').hidden = false;
+  $('#w-senha-atual').hidden = !!estado.senhaLogin;
+  setTimeout(() => $(estado.senhaLogin ? '#form-senha [name=nova]' : '#form-senha [name=atual]').focus(), 20);
+}
+$('#form-senha').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const d = lerForm(e.target);
+  $('#erro-senha').textContent = '';
+  if (d.nova !== d.confirma) { $('#erro-senha').textContent = 'As senhas não conferem.'; return; }
+  try {
+    await api('POST', '/api/me/senha', { atual: d.atual || estado.senhaLogin, nova: d.nova });
+    estado.senhaLogin = null;
+    e.target.reset();
+    estado.usuario.trocar_senha = 0;
+    $('#tela-senha').hidden = true;
+    await iniciarApp();
+    avisar('Senha criada. Bem-vindo!', 'ok');
+  } catch (err) { $('#erro-senha').textContent = err.message; }
+});
+
 async function iniciarApp() {
+  if (estado.usuario?.trocar_senha) { pedirNovaSenha(); return; }
   estado.meta = await api('GET', '/api/meta');
   $('#tela-login').hidden = true;
   $('#app').hidden = false;
@@ -194,7 +219,9 @@ $('#form-login').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#erro-login').textContent = '';
   try {
-    estado.usuario = await api('POST', '/api/login', lerForm(e.target));
+    const cred = lerForm(e.target);
+    estado.usuario = await api('POST', '/api/login', cred);
+    estado.senhaLogin = estado.usuario.trocar_senha ? cred.senha : null;
     e.target.reset();
     await iniciarApp();
   } catch (err) { $('#erro-login').textContent = err.message; }
@@ -204,8 +231,8 @@ $('#btn-conta').addEventListener('click', () => abrirForm({
   titulo: 'Minha conta — trocar senha',
   campos: [
     { n: 'atual', r: 'Senha atual', t: 'password', req: true, col2: true, attrs: 'autocomplete="current-password"' },
-    { n: 'nova', r: 'Nova senha', t: 'password', req: true, attrs: 'minlength="6" autocomplete="new-password"' },
-    { n: 'confirma', r: 'Repita a nova senha', t: 'password', req: true, attrs: 'minlength="6" autocomplete="new-password"' },
+    { n: 'nova', r: 'Nova senha (mín. 8)', t: 'password', req: true, attrs: 'minlength="8" autocomplete="new-password"' },
+    { n: 'confirma', r: 'Repita a nova senha', t: 'password', req: true, attrs: 'minlength="8" autocomplete="new-password"' },
   ],
   textoBotao: 'Trocar senha',
   salvar: async (d) => {

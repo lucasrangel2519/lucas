@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     senha_hash TEXT NOT NULL,
     perfil TEXT NOT NULL CHECK (perfil IN ('admin', 'vendedor')),
     ativo INTEGER NOT NULL DEFAULT 1,
+    trocar_senha INTEGER NOT NULL DEFAULT 0,
     criado_em TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessoes (
@@ -411,6 +412,12 @@ def inicializar_banco(caminho, avisar=True):
     cols = {r[1] for r in con.execute("PRAGMA table_info(movimentacoes)")}
     if "parcelas" not in cols:  # migração de bancos criados em versões anteriores
         con.execute("ALTER TABLE movimentacoes ADD COLUMN parcelas INTEGER NOT NULL DEFAULT 1")
+    if "trocar_senha" not in {r[1] for r in con.execute("PRAGMA table_info(usuarios)")}:
+        con.execute("ALTER TABLE usuarios ADD COLUMN trocar_senha INTEGER NOT NULL DEFAULT 0")
+        con.execute("DELETE FROM sessoes")  # sessões antigas guardavam o token sem hash
+        for u in con.execute("SELECT id, senha_hash FROM usuarios").fetchall():
+            if conferir_senha("admin123", u[1]):
+                con.execute("UPDATE usuarios SET trocar_senha = 1 WHERE id = ?", (u[0],))
     if "custo_total" not in {r[1] for r in con.execute("PRAGMA table_info(itens)")}:
         con.execute("ALTER TABLE itens ADD COLUMN custo_total REAL NOT NULL DEFAULT 0")
         con.execute("UPDATE itens SET custo_total = ROUND(quantidade * custo_unitario, 2)")
@@ -424,7 +431,7 @@ def inicializar_banco(caminho, avisar=True):
         con.execute("INSERT OR IGNORE INTO config (chave, valor) VALUES (?, ?)", (k, v))
     if not con.execute("SELECT 1 FROM usuarios").fetchone():
         con.execute(
-            "INSERT INTO usuarios (nome, login, senha_hash, perfil, criado_em) VALUES (?,?,?,?,?)",
+            "INSERT INTO usuarios (nome, login, senha_hash, perfil, criado_em, trocar_senha) VALUES (?,?,?,?,?,1)",
             ("Administrador", "admin", hash_senha("admin123"), "admin", agora()))
         if avisar:
             print("\n  Primeiro acesso -> usuário: admin   senha: admin123")
@@ -482,7 +489,7 @@ def login(c):
     token = secrets.token_urlsafe(32)
     expira = (dt.datetime.now() + dt.timedelta(hours=SESSAO_HORAS)).strftime("%Y-%m-%d %H:%M:%S")
     with ESCRITA:
-        c.db.execute("INSERT INTO sessoes VALUES (?, ?, ?)", (token, u["id"], expira))
+        c.db.execute("INSERT INTO sessoes VALUES (?, ?, ?)", (hash_token(token), u["id"], expira))
         c.db.commit()
     ck = f"{COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSAO_HORAS * 3600}"
     return Resposta(usuario_publico(u), headers=[("Set-Cookie", ck)])
@@ -498,7 +505,8 @@ def logout(c):
 
 
 def usuario_publico(u):
-    return {k: u[k] for k in ("id", "nome", "login", "perfil", "ativo", "criado_em")}
+    return {k: u.get(k) if isinstance(u, dict) else u[k]
+            for k in ("id", "nome", "login", "perfil", "ativo", "criado_em", "trocar_senha")}
 
 
 @rota("GET", "/api/me")
@@ -511,10 +519,13 @@ def trocar_minha_senha(c):
     if not conferir_senha(str(c.corpo.get("atual", "")), c.usuario["senha_hash"]):
         raise Erro("Senha atual incorreta.")
     nova = str(c.corpo.get("nova", ""))
-    if len(nova) < 6:
-        raise Erro("A nova senha precisa ter pelo menos 6 caracteres.")
+    if len(nova) < 8:
+        raise Erro("A nova senha precisa ter pelo menos 8 caracteres.")
+    if nova == str(c.corpo.get("atual", "")) or nova.lower() in ("admin123", "12345678", "123456789", "senha123"):
+        raise Erro("Escolha uma senha diferente e difícil de adivinhar.")
     with ESCRITA:
-        c.db.execute("UPDATE usuarios SET senha_hash = ? WHERE id = ?", (hash_senha(nova), c.usuario["id"]))
+        c.db.execute("UPDATE usuarios SET senha_hash = ?, trocar_senha = 0 WHERE id = ?",
+                     (hash_senha(nova), c.usuario["id"]))
         c.db.execute("DELETE FROM sessoes WHERE usuario_id = ? AND token <> ?",
                      (c.usuario["id"], c.usuario["_token"]))
         c.db.commit()
@@ -559,7 +570,7 @@ def criar_usuario(c):
         raise Erro("O usuário aceita apenas letras, números, ponto, hífen e sublinhado.")
     with ESCRITA:
         cur = c.db.execute(
-            "INSERT INTO usuarios (nome, login, senha_hash, perfil, criado_em) VALUES (?,?,?,?,?)",
+            "INSERT INTO usuarios (nome, login, senha_hash, perfil, criado_em, trocar_senha) VALUES (?,?,?,?,?,1)",
             (texto(b.get("nome"), "nome", True), login_, hash_senha(senha),
              opcao(b.get("perfil"), "perfil", ["admin", "vendedor"]), agora()))
         c.db.commit()
@@ -584,7 +595,8 @@ def editar_usuario(c):
         if senha:
             if len(senha) < 6:
                 raise Erro("A senha precisa ter pelo menos 6 caracteres.")
-            c.db.execute("UPDATE usuarios SET senha_hash = ? WHERE id = ?", (hash_senha(senha), uid))
+            c.db.execute("UPDATE usuarios SET senha_hash = ?, trocar_senha = ? WHERE id = ?",
+                         (hash_senha(senha), 0 if uid == c.usuario["id"] else 1, uid))
         if senha or not ativo:
             c.db.execute("DELETE FROM sessoes WHERE usuario_id = ?", (uid,))
         c.db.commit()
@@ -2317,6 +2329,117 @@ class Servidor(ThreadingHTTPServer):
         self.caminho_db, self.silencioso = caminho_db, silencioso
 
 
+LIMITE_CORPO = 2_000_000
+ROTAS_COM_SENHA_PADRAO = {"/api/me", "/api/me/senha", "/api/logout", "/api/meta", "/api/login"}
+
+
+def hash_token(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def resposta_json(status, dados, extras=()):
+    return status, [("Content-Type", "application/json; charset=utf-8"), *extras], \
+        json.dumps(dados, ensure_ascii=False).encode()
+
+
+def arquivo_estatico(caminho):
+    rel = "index.html" if caminho in ("", "/") else caminho.lstrip("/")
+    alvo = os.path.realpath(os.path.join(STATIC_DIR, rel))
+    if not alvo.startswith(os.path.realpath(STATIC_DIR) + os.sep) or not os.path.isfile(alvo):
+        return 404, [("Content-Type", "text/plain; charset=utf-8")], b"Nao encontrado"
+    tipo = mimetypes.guess_type(alvo)[0] or "application/octet-stream"
+    if alvo.endswith(".webmanifest"):
+        tipo = "application/manifest+json"
+    if tipo.startswith("text/") or tipo in ("application/javascript", "application/manifest+json"):
+        tipo += "; charset=utf-8"
+    with open(alvo, "rb") as f:
+        return 200, [("Content-Type", tipo), ("Cache-Control", "no-cache")], f.read()
+
+
+def usuario_da_sessao(db, cabecalho):
+    ck = cookies.SimpleCookie(cabecalho("Cookie") or "")
+    if COOKIE not in ck:
+        return None
+    token = hash_token(ck[COOKIE].value)
+    u = um(db, """SELECT u.* FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
+                  WHERE s.token = ? AND s.expira_em > ? AND u.ativo = 1""", (token, agora()))
+    if u:
+        u["_token"] = token
+    return u
+
+
+def ler_corpo(cabecalho, corpo, tamanho):
+    if tamanho > LIMITE_CORPO:
+        raise Erro("Requisição muito grande.", 413)
+    if not corpo:
+        return {}
+    if "application/json" not in (cabecalho("Content-Type") or ""):
+        raise Erro("Envie os dados em JSON.", 415)
+    try:
+        dados = json.loads(corpo.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise Erro("JSON inválido.")
+    if not isinstance(dados, dict):
+        raise Erro("JSON inválido.")
+    return dados
+
+
+def tratar_api(caminho_db, metodo, caminho, query, cabecalho, corpo, tamanho, ip):
+    alvo = None
+    for m, rx, acesso, f in ROTAS:
+        achou = rx.match(caminho)
+        if achou and m == metodo:
+            alvo = (acesso, f, achou.groups())
+            break
+    if not alvo:
+        return resposta_json(404, {"erro": "Rota não encontrada."})
+    acesso, f, params = alvo
+    db = conectar(caminho_db)
+    try:
+        usuario = usuario_da_sessao(db, cabecalho)
+        if acesso != "publico" and not usuario:
+            raise Erro("Sua sessão expirou. Entre novamente.", 401)
+        if usuario and usuario.get("trocar_senha") and caminho not in ROTAS_COM_SENHA_PADRAO:
+            raise Erro("Crie uma senha nova antes de continuar.", 403)
+        if acesso == "admin" and usuario["perfil"] != "admin":
+            raise Erro("Apenas administradores podem fazer isso.", 403)
+        dados = ler_corpo(cabecalho, corpo, tamanho) if metodo in ("POST", "PUT") else {}
+        res = f(Req(db, usuario, dados, parse_qs(query), params, ip, caminho_db))
+        if not isinstance(res, Resposta):
+            res = Resposta(res)
+        if res.bruto is not None:
+            return res.status, [("Content-Type", res.tipo), *res.headers], res.bruto
+        return resposta_json(res.status, res.dados, res.headers)
+    except Erro as e:
+        return resposta_json(e.status, {"erro": e.msg})
+    except sqlite3.IntegrityError as e:
+        msg = "Já existe um registro com esse código." if "UNIQUE" in str(e) else "Operação inválida para os dados atuais."
+        return resposta_json(400, {"erro": msg})
+    except Exception:
+        traceback.print_exc()
+        return resposta_json(500, {"erro": "Erro interno no servidor."})
+    finally:
+        db.close()
+
+
+def processar(caminho_db, metodo, caminho, query, cabecalho, corpo, tamanho, ip, https):
+    """Atende uma requisição. Usado tanto pelo servidor embutido quanto pelo WSGI (hospedagem)."""
+    if caminho.startswith("/api/"):
+        status, hs, saida = tratar_api(caminho_db, metodo, caminho, query, cabecalho, corpo, tamanho, ip)
+        hs.append(("Cache-Control", "no-store"))
+    elif metodo in ("GET", "HEAD"):
+        status, hs, saida = arquivo_estatico(caminho)
+    else:
+        status, hs, saida = resposta_json(405, {"erro": "Método não permitido."})
+    if https:  # na internet: cookie só trafega cifrado e o navegador passa a exigir HTTPS
+        hs = [(k, v + "; Secure") if k == "Set-Cookie" else (k, v) for k, v in hs]
+        hs.append(("Strict-Transport-Security", "max-age=31536000"))
+    hs += [("X-Content-Type-Options", "nosniff"), ("X-Frame-Options", "DENY"), ("Referrer-Policy", "same-origin"),
+           ("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"),
+           ("Content-Length", str(len(saida)))]
+    return status, hs, saida
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "EstoqueCelulares/1.0"
     sys_version = ""
@@ -2325,118 +2448,45 @@ class Handler(BaseHTTPRequestHandler):
         if not self.server.silencioso:
             sys.stderr.write("%s - %s\n" % (self.log_date_time_string(), fmt % args))
 
-    def do_GET(self):
-        self.tratar("GET")
-
-    def do_POST(self):
-        self.tratar("POST")
-
-    def do_PUT(self):
-        self.tratar("PUT")
-
-    def do_DELETE(self):
-        self.tratar("DELETE")
-
-    def cabecalhos_seguranca(self):
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Referrer-Policy", "same-origin")
-        self.send_header("Content-Security-Policy",
-                         "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
-
-    def enviar(self, status, corpo, tipo, extras=()):
+    def tratar(self):
+        url = urlparse(self.path)
+        tamanho = int(self.headers.get("Content-Length") or 0)
+        corpo = self.rfile.read(tamanho) if 0 < tamanho <= LIMITE_CORPO else b""
+        status, hs, saida = processar(self.server.caminho_db, self.command, url.path, url.query, self.headers.get,
+                                      corpo, tamanho, self.client_address[0], False)
         self.send_response(status)
-        self.send_header("Content-Type", tipo)
-        self.send_header("Content-Length", str(len(corpo)))
-        self.send_header("Cache-Control", "no-store")
-        self.cabecalhos_seguranca()
-        for k, v in extras:
+        for k, v in hs:
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
-            self.wfile.write(corpo)
+            self.wfile.write(saida)
 
-    def json(self, status, dados, extras=()):
-        self.enviar(status, json.dumps(dados, ensure_ascii=False).encode(), "application/json; charset=utf-8", extras)
+    do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = tratar
 
-    def servir_estatico(self, caminho):
-        rel = "index.html" if caminho in ("", "/") else caminho.lstrip("/")
-        alvo = os.path.realpath(os.path.join(STATIC_DIR, rel))
-        if not alvo.startswith(os.path.realpath(STATIC_DIR) + os.sep) or not os.path.isfile(alvo):
-            return self.enviar(404, b"Nao encontrado", "text/plain; charset=utf-8")
-        tipo = mimetypes.guess_type(alvo)[0] or "application/octet-stream"
-        if tipo.startswith("text/") or tipo in ("application/javascript",):
-            tipo += "; charset=utf-8"
-        with open(alvo, "rb") as f:
-            self.enviar(200, f.read(), tipo)
 
-    def sessao(self, db):
-        ck = cookies.SimpleCookie(self.headers.get("Cookie", ""))
-        if COOKIE not in ck:
-            return None
-        token = ck[COOKIE].value
-        u = um(db, """SELECT u.* FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
-                      WHERE s.token = ? AND s.expira_em > ? AND u.ativo = 1""", (token, agora()))
-        if u:
-            u["_token"] = token
-        return u
+def criar_app(caminho_db=None):
+    """Aplicação WSGI para hospedar na internet (PythonAnywhere, etc.)."""
+    from http import HTTPStatus
+    caminho_db = caminho_db or os.environ.get("ESTOQUE_DB", DB_PADRAO)
+    inicializar_banco(caminho_db, avisar=False)
 
-    def ler_corpo(self):
-        tamanho = int(self.headers.get("Content-Length") or 0)
-        if tamanho > 2_000_000:
-            raise Erro("Requisição muito grande.", 413)
-        if not tamanho:
-            return {}
-        if "application/json" not in self.headers.get("Content-Type", ""):
-            raise Erro("Envie os dados em JSON.", 415)
-        try:
-            corpo = json.loads(self.rfile.read(tamanho).decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
-            raise Erro("JSON inválido.")
-        if not isinstance(corpo, dict):
-            raise Erro("JSON inválido.")
-        return corpo
+    def app(environ, start_response):
+        tamanho = int(environ.get("CONTENT_LENGTH") or 0)
+        corpo = environ["wsgi.input"].read(tamanho) if 0 < tamanho <= LIMITE_CORPO else b""
 
-    def tratar(self, metodo):
-        url = urlparse(self.path)
-        if not url.path.startswith("/api/"):
-            if metodo == "GET":
-                return self.servir_estatico(url.path)
-            return self.json(405, {"erro": "Método não permitido."})
-        alvo = None
-        for m, rx, acesso, f in ROTAS:
-            achou = rx.match(url.path)
-            if achou and m == metodo:
-                alvo = (acesso, f, achou.groups())
-                break
-        if not alvo:
-            return self.json(404, {"erro": "Rota não encontrada."})
-        acesso, f, params = alvo
-        db = conectar(self.server.caminho_db)
-        try:
-            usuario = self.sessao(db)
-            if acesso != "publico" and not usuario:
-                raise Erro("Sua sessão expirou. Entre novamente.", 401)
-            if acesso == "admin" and usuario["perfil"] != "admin":
-                raise Erro("Apenas administradores podem fazer isso.", 403)
-            corpo = self.ler_corpo() if metodo in ("POST", "PUT") else {}
-            res = f(Req(db, usuario, corpo, parse_qs(url.query), params, self.client_address[0],
-                        self.server.caminho_db))
-            if not isinstance(res, Resposta):
-                res = Resposta(res)
-            if res.bruto is not None:
-                return self.enviar(res.status, res.bruto, res.tipo, res.headers)
-            self.json(res.status, res.dados, res.headers)
-        except Erro as e:
-            self.json(e.status, {"erro": e.msg})
-        except sqlite3.IntegrityError as e:
-            msg = "Já existe um registro com esse código." if "UNIQUE" in str(e) else "Operação inválida para os dados atuais."
-            self.json(400, {"erro": msg})
-        except Exception:
-            traceback.print_exc()
-            self.json(500, {"erro": "Erro interno no servidor."})
-        finally:
-            db.close()
+        def cabecalho(nome):
+            if nome.lower() == "content-type":
+                return environ.get("CONTENT_TYPE")
+            return environ.get("HTTP_" + nome.upper().replace("-", "_"))
+        # atrás do proxy da hospedagem o IP real do cliente vem nestes cabeçalhos
+        ip = (environ.get("HTTP_X_REAL_IP") or (environ.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+              or environ.get("REMOTE_ADDR", ""))
+        https = environ.get("wsgi.url_scheme") == "https" or environ.get("HTTP_X_FORWARDED_PROTO") == "https"
+        status, hs, saida = processar(caminho_db, environ["REQUEST_METHOD"], environ.get("PATH_INFO") or "/",
+                                      environ.get("QUERY_STRING", ""), cabecalho, corpo, tamanho, ip, https)
+        start_response(f"{status} {HTTPStatus(status).phrase}", hs)
+        return [b""] if environ["REQUEST_METHOD"] == "HEAD" else [saida]
+    return app
 
 
 # --------------------------------------------------------------------------- dados de exemplo

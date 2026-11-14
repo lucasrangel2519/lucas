@@ -53,6 +53,8 @@ class TesteSistema(unittest.TestCase):
         cls.adm = Cliente(cls.porta)
         st, _ = cls.adm.req("POST", "/api/login", {"login": "admin", "senha": "admin123"})
         assert st == 200
+        st, r = cls.adm.req("POST", "/api/me/senha", {"atual": "admin123", "nova": "Loja@Forte2026"})
+        assert st == 200, r
 
     @classmethod
     def tearDownClass(cls):
@@ -162,6 +164,9 @@ class TesteSistema(unittest.TestCase):
         self.assertEqual(st, 200)
         v = Cliente(self.porta)
         self.assertEqual(v.req("POST", "/api/login", {"login": "vend1", "senha": "123456"})[0], 200)
+        # usuário criado pelo administrador precisa criar a própria senha no primeiro acesso
+        self.assertEqual(v.req("GET", "/api/produtos")[0], 403)
+        self.assertEqual(v.req("POST", "/api/me/senha", {"atual": "123456", "nova": "Vendas#2026x"})[0], 200)
         self.assertEqual(v.req("POST", "/api/produtos", {"nome": "x", "categoria": "Outro"})[0], 403)
         self.assertEqual(v.req("GET", "/api/usuarios")[0], 403)
         self.assertEqual(v.req("GET", "/api/backup")[0], 403)
@@ -370,6 +375,59 @@ class TesteSistema(unittest.TestCase):
         self.assertEqual(self.estoque(b["id"])["estoque_atual"], 6)
         self.assertEqual(self.estoque(cel["id"])["imeis_disponiveis"], [im[0]])
         self.assertEqual(self.adm.req("POST", f"/api/inventarios/{inv['id']}/finalizar", {})[0], 400)
+
+    def test_senha_padrao_obrigatoria(self):
+        tmp = os.path.join(self.tmp.name, "novo.db")
+        servidor.inicializar_banco(tmp, avisar=False)
+        srv = servidor.Servidor(("127.0.0.1", 0), tmp, silencioso=True)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            c = Cliente(srv.server_address[1])
+            st, u = c.req("POST", "/api/login", {"login": "admin", "senha": "admin123"})
+            self.assertEqual((st, u["trocar_senha"]), (200, 1))
+            self.assertEqual(c.req("GET", "/api/painel")[0], 403)
+            self.assertEqual(c.req("GET", "/api/me")[0], 200)
+            self.assertEqual(c.req("POST", "/api/me/senha", {"atual": "admin123", "nova": "admin123"})[0], 400)
+            self.assertEqual(c.req("POST", "/api/me/senha", {"atual": "admin123", "nova": "curta"})[0], 400)
+            self.assertEqual(c.req("POST", "/api/me/senha", {"atual": "admin123", "nova": "Minha$Loja99"})[0], 200)
+            self.assertEqual(c.req("GET", "/api/painel")[0], 200)
+            # o token da sessão não fica gravado em texto no banco
+            token = c.cookie.split("=", 1)[1]
+            con = servidor.conectar(tmp)
+            self.assertIsNone(con.execute("SELECT 1 FROM sessoes WHERE token = ?", (token,)).fetchone())
+            con.close()
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_wsgi_para_hospedagem(self):
+        import io
+        tmp = os.path.join(self.tmp.name, "wsgi.db")
+        app = servidor.criar_app(tmp)
+
+        def chamar(metodo, caminho, corpo=None, cookie=None):
+            dados = json.dumps(corpo).encode() if corpo is not None else b""
+            env = {"REQUEST_METHOD": metodo, "PATH_INFO": caminho, "QUERY_STRING": "", "wsgi.url_scheme": "http",
+                   "HTTP_X_FORWARDED_PROTO": "https", "HTTP_X_REAL_IP": "200.1.2.3", "CONTENT_LENGTH": str(len(dados)),
+                   "CONTENT_TYPE": "application/json", "wsgi.input": io.BytesIO(dados)}
+            if cookie:
+                env["HTTP_COOKIE"] = cookie
+            saida = {}
+
+            def start(status, hs):
+                saida["status"], saida["hs"] = int(status.split()[0]), hs
+            corpo_r = b"".join(app(env, start))
+            return saida["status"], dict(saida["hs"]), corpo_r
+        st, hs, corpo = chamar("GET", "/")
+        self.assertEqual(st, 200)
+        self.assertIn(b"<html", corpo)
+        self.assertIn("Strict-Transport-Security", hs)
+        st, hs, _ = chamar("POST", "/api/login", {"login": "admin", "senha": "admin123"})
+        self.assertEqual(st, 200)
+        self.assertIn("Secure", hs["Set-Cookie"])
+        cookie = hs["Set-Cookie"].split(";")[0]
+        self.assertEqual(chamar("GET", "/api/me", cookie=cookie)[0], 200)
+        self.assertEqual(chamar("GET", "/manifest.webmanifest")[0], 200)
 
     def test_estatico_sem_travessia(self):
         st, _ = self.adm.req("GET", "/../servidor.py")

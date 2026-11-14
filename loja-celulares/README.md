@@ -7,7 +7,11 @@ Funciona no navegador, no computador do balcão e também no celular ou tablet d
 - Os dados ficam num único arquivo no seu computador (`dados/estoque.db`).
 - Funciona sem internet.
 
-## Como iniciar
+## Usar no iPhone ou pela internet
+
+Siga o passo a passo em **[HOSPEDAGEM.md](HOSPEDAGEM.md)**. O sistema fica num endereço como `https://seunome.pythonanywhere.com`, abre no Safari e vira um ícone na tela de início do iPhone. O mesmo endereço funciona no computador e no celular dos vendedores.
+
+## Como iniciar (no computador)
 
 **Windows:** instale o Python em <https://www.python.org/downloads/> (marque *Add Python to PATH*) e dê dois cliques em `iniciar-windows.bat`.
 
@@ -23,7 +27,7 @@ Abra **http://localhost:8080** e entre com:
 |---|---|
 | `admin` | `admin123` |
 
-> Troque a senha logo no primeiro acesso, em **Minha conta** (canto inferior esquerdo).
+> No primeiro acesso o sistema obriga a criar uma senha nova, com pelo menos 8 caracteres.
 
 Opções:
 
@@ -116,7 +120,8 @@ Compra de fornecedor (com número da nota), devolução de cliente, troca (apare
 ### Usuários e segurança
 - **Administrador:** acesso total. Vê custo, lucro e o financeiro, cadastra produtos, cancela lançamentos e faz ajustes.
 - **Vendedor:** faz vendas, orçamentos, ordens de serviço, entradas, caixa e clientes. Não vê custo, lucro nem contas a pagar.
-- Senhas guardadas com hash (PBKDF2). A sessão expira em 12 horas. Depois de várias senhas erradas, o login é bloqueado por alguns minutos.
+- Senhas guardadas com hash (PBKDF2). Senha nova obrigatória no primeiro acesso, inclusive para usuários criados pelo administrador. A sessão expira em 12 horas e o token da sessão é guardado com hash. Depois de várias senhas erradas, o login é bloqueado por alguns minutos.
+- Na internet, o cookie só trafega por HTTPS e o navegador é instruído a sempre usar HTTPS (HSTS).
 
 ### Backup
 Em **Configurações → Baixar backup agora**. Lá também ficam o saldo inicial do financeiro, a garantia padrão da OS, a validade dos orçamentos e o termo impresso na OS. Guarde a cópia fora do computador (pen drive ou nuvem).
@@ -132,6 +137,8 @@ python3 -m unittest discover -s tests -v
 
 ```
 servidor.py           servidor web + API + banco SQLite (Python puro)
+wsgi.py               entrada para hospedagem na internet (PythonAnywhere)
+HOSPEDAGEM.md         passo a passo para colocar online e instalar no iPhone
 static/index.html     interface
 static/js/app.js      telas: painel, PDV, entrada, produtos, relatórios...
 static/js/modulos.js  telas: orçamentos, ordens de serviço, financeiro e caixa
