@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Comparativo Nivus</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07111f; --bg2:#0c1b31; --card:#0f2240; --line:#1d3a63;
+  --txt:#eaf2ff; --muted:#8ea6c8; --sense:#2fb5ff; --high:#f2c14e; --ok:#3ddc97; --no:#5b6f8c;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1080px;background:var(--bg);color:var(--txt);font-family:Montserrat,Arial,sans-serif}
+.wrap{padding:56px 56px 48px;background:
+  radial-gradient(1200px 600px at 50% -10%, #17406f 0%, transparent 60%),
+  linear-gradient(180deg,var(--bg2),var(--bg) 40%)}
+.kicker{font-weight:700;letter-spacing:.32em;font-size:18px;color:var(--muted);text-align:center}
+h1{font-weight:900;font-size:76px;line-height:1;text-align:center;margin-top:12px;letter-spacing:-.02em}
+h1 span{background:linear-gradient(90deg,var(--sense),#9fe0ff 45%,var(--high));-webkit-background-clip:text;color:transparent}
+.sub{text-align:center;color:var(--muted);font-size:22px;margin-top:14px;font-weight:500}
+
+.hero{display:grid;grid-template-columns:1fr 90px 1fr;align-items:end;margin-top:40px}
+.car{text-align:center}
+.car svg{width:100%;height:auto;display:block}
+.vs{align-self:center;width:84px;height:84px;border-radius:50%;display:grid;place-items:center;
+  font-weight:900;font-size:30px;background:#0b1a30;border:3px solid var(--line);margin:0 auto 70px}
+.tag{display:inline-block;margin-top:10px;padding:10px 26px;border-radius:999px;font-weight:800;font-size:30px;letter-spacing:.02em}
+.tag.s{background:rgba(47,181,255,.14);color:var(--sense);border:2px solid var(--sense)}
+.tag.h{background:rgba(242,193,78,.14);color:var(--high);border:2px solid var(--high)}
+.price{font-size:20px;color:var(--muted);margin-top:14px;font-weight:600}
+.price b{display:block;font-size:44px;color:var(--txt);font-weight:900;margin-top:2px}
+.pos{font-size:17px;color:var(--muted);margin-top:6px}
+
+.sec{margin-top:40px;background:var(--card);border:1px solid var(--line);border-radius:26px;overflow:hidden}
+.sec h2{display:flex;align-items:center;gap:14px;font-size:24px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  padding:20px 28px;background:linear-gradient(90deg,#14315a,#0f2240)}
+.sec h2 i{font-style:normal;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:#0a1830;font-size:22px}
+.row{display:grid;grid-template-columns:1.25fr 1fr 1fr;align-items:center;border-top:1px solid var(--line);min-height:66px}
+.row>div{padding:14px 24px;font-size:20px}
+.row .k{color:#c7d6ee;font-weight:600}
+.row .v{text-align:center;font-weight:700;border-left:1px solid var(--line);height:100%;display:flex;align-items:center;justify-content:center;gap:10px}
+.head .v{font-weight:900;font-size:20px;letter-spacing:.08em}
+.head .v.s{color:var(--sense)} .head .v.h{color:var(--high)}
+.head{background:#0b1a30;min-height:54px}
+.v.win{background:rgba(242,193,78,.08)}
+.y{color:var(--ok);font-size:26px;font-weight:900}
+.n{color:var(--no);font-size:26px;font-weight:900}
+.v small{display:block;font-size:15px;color:var(--muted);font-weight:500}
+.v .t{line-height:1.2}
+
+.same{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid var(--line)}
+.same div{padding:22px 10px;text-align:center;border-left:1px solid var(--line)}
+.same div:first-child{border-left:0}
+.same b{display:block;font-size:30px;font-weight:900}
+.same span{font-size:15px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+
+.verdict{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:40px}
+.vc{border-radius:24px;padding:28px;border:2px solid}
+.vc.s{border-color:var(--sense);background:linear-gradient(160deg,rgba(47,181,255,.16),rgba(47,181,255,.03))}
+.vc.h{border-color:var(--high);background:linear-gradient(160deg,rgba(242,193,78,.18),rgba(242,193,78,.03))}
+.vc h3{font-size:26px;font-weight:900}
+.vc.s h3{color:var(--sense)} .vc.h h3{color:var(--high)}
+.vc p{font-size:19px;color:#d3def0;margin-top:10px;line-height:1.45}
+.vc ul{margin-top:12px;list-style:none}
+.vc li{font-size:18px;padding:5px 0;color:#d3def0}
+.vc li:before{content:"➜ ";font-weight:900}
+.vc.s li:before{color:var(--sense)} .vc.h li:before{color:var(--high)}
+
+.diff{margin-top:40px;text-align:center;padding:30px;border-radius:24px;background:#0b1a30;border:1px dashed var(--line)}
+.diff .l{font-size:18px;color:var(--muted);font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.diff .big{font-size:52px;font-weight:900;margin-top:6px}
+.diff .big em{font-style:normal;color:var(--high)}
+.diff p{font-size:19px;color:#c7d6ee;margin-top:8px}
+
+.cta{margin-top:40px;text-align:center;padding:34px;border-radius:26px;background:linear-gradient(90deg,#1a5fb4,#2fb5ff)}
+.cta b{font-size:34px;font-weight:900;display:block}
+.cta span{font-size:20px;font-weight:600;opacity:.95;display:block;margin-top:8px}
+.foot{margin-top:24px;font-size:14px;color:#6f86a8;text-align:center;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">COMPARATIVO COMPLETO · LINHA 2027</div>
+  <h1>NIVUS <span>SENSE PRO × HIGHLINE</span></h1>
+  <div class="sub">Qual versão combina mais com você? Veja item por item.</div>
+
+  <div class="hero">
+    <div class="car">
+      <svg viewBox="0 0 460 210" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="bs" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#8fd8ff"/><stop offset=".55" stop-color="#2a8fd6"/><stop offset="1" stop-color="#0d3b66"/></linearGradient>
+          <radialGradient id="sh" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#000" stop-opacity=".7"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+        </defs>
+        <ellipse cx="230" cy="186" rx="215" ry="16" fill="url(#sh)"/>
+        <path d="M28 150 C26 128 40 116 70 110 L128 102 C160 72 196 52 250 50 C300 49 336 62 372 92 L412 104 C432 110 440 124 438 146 L436 160 L30 162 Z" fill="url(#bs)"/>
+        <path d="M140 102 C168 76 200 62 248 60 C290 59 320 70 350 94 Z" fill="#0a1f38" opacity=".9"/>
+        <path d="M250 60 L252 98" stroke="#2a8fd6" stroke-width="5"/>
+        <path d="M44 132 L120 126" stroke="#bfe9ff" stroke-width="3" opacity=".6"/>
+        <rect x="404" y="118" width="30" height="8" rx="4" fill="#ff4d4d"/>
+        <rect x="30" y="118" width="26" height="8" rx="4" fill="#e9f6ff"/>
+        <path d="M28 152 L438 150" stroke="#06223f" stroke-width="10"/>
+        <g><circle cx="110" cy="160" r="34" fill="#0b0f16"/><circle cx="110" cy="160" r="20" fill="#2b3442"/><circle cx="110" cy="160" r="6" fill="#111"/>
+           <circle cx="350" cy="160" r="34" fill="#0b0f16"/><circle cx="350" cy="160" r="20" fill="#2b3442"/><circle cx="350" cy="160" r="6" fill="#111"/></g>
+      </svg>
+      <div class="tag s">SENSE PRO</div>
+      <div class="price">a partir de<b>R$ 119.990</b></div>
+      <div class="pos">Entrada inteligente · custo-benefício</div>
+    </div>
+    <div class="vs">VS</div>
+    <div class="car">
+      <svg viewBox="0 0 460 210" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="bh" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ffe7a3"/><stop offset=".5" stop-color="#d9a12b"/><stop offset="1" stop-color="#6b4a08"/></linearGradient>
+          <radialGradient id="sh2" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#000" stop-opacity=".7"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+          <linearGradient id="wh" x1="0" x2="1"><stop offset="0" stop-color="#cfd8e3"/><stop offset="1" stop-color="#7b8796"/></linearGradient>
+        </defs>
+        <ellipse cx="230" cy="186" rx="215" ry="16" fill="url(#sh2)"/>
+        <path d="M28 150 C26 128 40 116 70 110 L128 102 C160 72 196 52 250 50 C300 49 336 62 372 92 L412 104 C432 110 440 124 438 146 L436 160 L30 162 Z" fill="url(#bh)"/>
+        <path d="M140 102 C168 76 200 62 248 60 C290 59 320 70 350 94 Z" fill="#111" opacity=".92"/>
+        <path d="M150 60 C190 48 300 46 350 70" stroke="#111" stroke-width="10" fill="none" opacity=".85"/>
+        <path d="M250 60 L252 98" stroke="#d9a12b" stroke-width="5"/>
+        <path d="M30 112 L70 108" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+        <path d="M44 132 L120 126" stroke="#fff3cc" stroke-width="3" opacity=".7"/>
+        <rect x="400" y="116" width="36" height="8" rx="4" fill="#ff3b3b"/>
+        <rect x="28" y="118" width="30" height="9" rx="4" fill="#fff"/>
+        <path d="M28 152 L438 150" stroke="#3a2804" stroke-width="10"/>
+        <g><circle cx="110" cy="160" r="36" fill="#0b0f16"/><circle cx="110" cy="160" r="24" fill="url(#wh)"/>
+           <g stroke="#3b4350" stroke-width="4"><path d="M110 138 L110 182"/><path d="M89 149 L131 171"/><path d="M89 171 L131 149"/></g><circle cx="110" cy="160" r="6" fill="#222"/>
+           <circle cx="350" cy="160" r="36" fill="#0b0f16"/><circle cx="350" cy="160" r="24" fill="url(#wh)"/>
+           <g stroke="#3b4350" stroke-width="4"><path d="M350 138 L350 182"/><path d="M329 149 L371 171"/><path d="M329 171 L371 149"/></g><circle cx="350" cy="160" r="6" fill="#222"/></g>
+      </svg>
+      <div class="tag h">HIGHLINE</div>
+      <div class="price">a partir de<b>R$ 173.290</b></div>
+      <div class="pos">Topo de linha 1.0 · máximo conforto</div>
+    </div>
+  </div>
+
+  <!-- MOTOR -->
+  <div class="sec">
+    <h2><i>⚙️</i> Motor e desempenho</h2>
+    <div class="same">
+      <div><b>1.0 TSI</b><span>200 TSI turbo flex</span></div>
+      <div><b>128 cv</b><span>etanol · 116 cv gas.</span></div>
+      <div><b>20,4 kgfm</b><span>torque</span></div>
+      <div><b>AT 6</b><span>automático 6 marchas</span></div>
+    </div>
+    <div class="row"><div class="k">0 a 100 km/h (etanol)</div><div class="v"><span class="t">≈ 10 s</span></div><div class="v"><span class="t">≈ 9,9 s</span></div></div>
+    <div class="row"><div class="k">Porta-malas</div><div class="v">415 litros</div><div class="v">415 litros</div></div>
+  </div>
+
+  <!-- SEGURANCA -->
+  <div class="sec">
+    <h2><i>🛡️</i> Segurança</h2>
+    <div class="row head"><div class="k"></div><div class="v s">SENSE PRO</div><div class="v h">HIGHLINE</div></div>
+    <div class="row"><div class="k">6 airbags</div><div class="v"><span class="y">✓</span></div><div class="v"><span class="y">✓</span></div></div>
+    <div class="row"><div class="k">Frenagem autônoma de emergência</div><div class="v"><span class="y">✓</span></div><div class="v"><span class="y">✓</span></div></div>
+    <div class="row"><div class="k">Controle de estabilidade e tração</div><div class="v"><span class="y">✓</span></div><div class="v"><span class="y">✓</span></div></div>
+    <div class="row"><div class="k">Sensor de estacionamento</div><div class="v"><span class="t">Traseiro</span></div><div class="v win"><span class="t">Dianteiro + traseiro</span></div></div>
+    <div class="row"><div class="k">Câmera de ré</div><div class="v"><span class="n">—</span></div><div class="v win"><span class="y">✓</span></div></div>
+    <div class="row"><div class="k">Piloto automático</div><div class="v"><span class="t">Convencional</span></div><div class="v win"><span class="t">Adaptativo (ACC)</span></div></div>
+    <div class="row"><div class="k">Detector de fadiga</div><div class="v"><span class="n">—</span></div><div class="v win"><span class="y">✓</span></div></div>
+  </div>
+
+  <!-- TECNOLOGIA -->
+  <div class="sec">
+    <h2><i>📱</i> Tecnologia e conectividade</h2>
+    <div class="row head"><div class="k"></div><div class="v s">SENSE PRO</div><div class="v h">HIGHLINE</div></div>
+    <div class="row"><div class="k">Multimídia VW Play</div><div class="v">10"</div><div class="v">10"</div></div>
+    <div class="row"><div class="k">Painel de instrumentos digital</div><div class="v"><span class="t">8"</span></div><div class="v win"><span class="t">10,25" configurável</span></div></div>
+    <div class="row"><div class="k">Android Auto / Apple CarPlay</div><div class="v"><span class="y">✓</span></div><div class="v"><span class="t">✓ sem fio</span></div></div>
+    <div class="row"><div class="k">Carregador por indução</div><div class="v"><span class="n">—</span></div><div class="v win"><span class="y">✓</span></div></div>
+  </div>
+
+  <!-- CONFORTO -->
+  <div class="sec">
+    <h2><i>🛋️</i> Conforto</h2>
+    <div class="row head"><div class="k"></div><div class="v s">SENSE PRO</div><div class="v h">HIGHLINE</div></div>
+    <div class="row"><div class="k">Ar-condicionado</div><div class="v"><span class="t">Manual</span></div><div class="v win"><span class="t">Digital automático<small>Climatronic touch</small></span></div></div>
+    <div class="row"><div class="k">Chave presencial + partida por botão</div><div class="v"><span class="n">—</span></div><div class="v win"><span class="y">✓</span></div></div>
+    <div class="row"><div class="k">Revestimento dos bancos</div><div class="v"><span class="t">Tecido</span></div><div class="v win"><span class="t">Couro</span></div></div>
+    <div class="row"><div class="k">Direção elétrica</div><div class="v"><span class="y">✓</span></div><div class="v"><span class="y">✓</span></div></div>
+  </div>
+
+  <!-- DESIGN -->
+  <div class="sec">
+    <h2><i>✨</i> Design e acabamento</h2>
+    <div class="row head"><div class="k"></div><div class="v s">SENSE PRO</div><div class="v h">HIGHLINE</div></div>
+    <div class="row"><div class="k">Rodas</div><div class="v"><span class="t">Aço 16"<small>com calotas</small></span></div><div class="v win"><span class="t">Liga leve 17"<small>diamantadas</small></span></div></div>
+    <div class="row"><div class="k">Faróis</div><div class="v"><span class="t">LED</span></div><div class="v win"><span class="t">Full LED c/ projetores</span></div></div>
+    <div class="row"><div class="k">Barra de LED iluminada na grade</div><div class="v"><span class="n">—</span></div><div class="v win"><span class="y">✓</span></div></div>
+    <div class="row"><div class="k">Lanternas em LED</div><div class="v"><span class="y">✓</span></div><div class="v"><span class="y">✓</span></div></div>
+  </div>
+
+  <div class="diff">
+    <div class="l">Diferença entre as versões</div>
+    <div class="big">≈ <em>R$ 53.300</em></div>
+    <p>Mesmo motor e mesmo câmbio — você paga pelo pacote de conforto, tecnologia e acabamento.</p>
+  </div>
+
+  <div class="verdict">
+    <div class="vc s">
+      <h3>Escolha o SENSE PRO se…</h3>
+      <ul>
+        <li>Quer o motor TSI e o câmbio automático pelo menor preço</li>
+        <li>Prioriza segurança: 6 airbags e frenagem autônoma de série</li>
+        <li>Busca parcela menor e seguro mais barato</li>
+      </ul>
+    </div>
+    <div class="vc h">
+      <h3>Escolha o HIGHLINE se…</h3>
+      <ul>
+        <li>Quer o Nivus completo: ACC, câmera e chave presencial</li>
+        <li>Valoriza acabamento: couro, rodas 17" e LED na grade</li>
+        <li>Pega estrada com frequência e quer mais conforto</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="cta">
+    <b>Agende seu test drive e compare ao vivo!</b>
+    <span>Fale comigo para condições de pagamento, avaliação do seu usado e taxa especial.</span>
+  </div>
+
+  <div class="foot">Preços públicos sugeridos e itens de série conforme divulgação da linha 2027; podem variar por região, cor, opcionais e data.<br>
+  Imagens ilustrativas. Consulte a concessionária para confirmação de valores, equipamentos e disponibilidade.</div>
+</div>
+</body>
+</html>
