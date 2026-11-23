@@ -179,6 +179,8 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
   <h6>Vendas</h6>
   <a href="#vender" data-r="vender"><svg class="i"><use href="#i-cart"/></svg>Nova venda (PDV)</a>
   <a href="#vendas" data-r="vendas"><svg class="i"><use href="#i-list"/></svg>Vendas realizadas</a>
+  <h6>Serviços</h6>
+  <a href="#servicos" data-r="servicos"><svg class="i"><use href="#i-tool"/></svg>Ordens de serviço</a>
   <h6>Itens</h6>
   <a href="#produtos" data-r="produtos"><svg class="i"><use href="#i-box"/></svg>Produtos</a>
   <h6>Estoque</h6>
@@ -197,6 +199,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 <nav class="bn">
   <a href="#inicio" data-r="inicio"><svg class="i"><use href="#i-home"/></svg>Início</a>
   <a href="#produtos" data-r="produtos"><svg class="i"><use href="#i-box"/></svg>Produtos</a>
+  <a href="#servicos" data-r="servicos"><svg class="i"><use href="#i-tool"/></svg>Serviços</a>
   <a href="#vender" class="sell" data-r="vender"><span><svg class="i"><use href="#i-cart"/></svg></span>Vender</a>
   <a href="#estoque" data-r="estoque"><svg class="i"><use href="#i-swap"/></svg>Estoque</a>
   <button data-a="menu"><svg class="i"><use href="#i-menu"/></svg>Menu</button>
@@ -225,7 +228,7 @@ alert:'M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.
 scan:'M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10',
 trash:'M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6M9 6V4h6v2',edit:'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
 check:'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M9 2h6v4H9zM9 14l2 2 4-4',x:'M18 6L6 18M6 6l12 12',
-cash:'M2 6h20v12H2z'+C(12,12,3),list:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',dollar:'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6',
+cash:'M2 6h20v12H2z'+C(12,12,3),tool:'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9l-3.8 3.8z',list:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',dollar:'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6',
 cam:'M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z'+C(12,13,4),share:'M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13'};
 document.getElementById('sprite').innerHTML=Object.entries(ICONS).map(([k,d])=>`<symbol id="i-${k}" viewBox="0 0 24 24"><path d="${d}"/></symbol>`).join('');
 const I=n=>`<svg class="i"><use href="#i-${n}"/></svg>`;
@@ -244,14 +247,14 @@ const PG=['Dinheiro','Pix','Cartão de débito','Cartão de crédito','Boleto','
 const UN=['UN','PC','CX','PAR','KG','G','M','L','KIT'];
 
 /* ---------- dados ---------- */
-const S={p:[],m:[],v:[],c:[],f:[],u:[],cfg:{id:'cfg',t:'cfg',empresa:'Minha loja',usuario:'Lucas',grupos:[]}};
+const S={p:[],m:[],v:[],c:[],f:[],u:[],o:[],cfg:{id:'cfg',t:'cfg',empresa:'Minha loja',usuario:'Lucas',grupos:[]}};
 const UI={q:'',ap:'mes',au:'',at:'S',g:'',low:false,vf:'mes',mf:'',cart:[],cli:'',pq:'',cq:''};
 const LS='gestaolr-dados-v1';
 let col=null,mode='wait',pend=[],queue=Promise.resolve();
-const all=()=>[S.cfg,...S.p,...S.m,...S.v,...S.c,...S.f,...S.u];
+const all=()=>[S.cfg,...S.p,...S.m,...S.v,...S.c,...S.f,...S.u,...S.o];
 const sig=()=>JSON.stringify(all());
-function ingest(arr){const n={p:[],m:[],v:[],c:[],f:[],u:[]};let cfg=null;for(const d of arr){if(!d||!d.t)continue;if(d.t==='cfg')cfg=d;else if(n[d.t])n[d.t].push(d)}Object.assign(S,n);if(cfg)S.cfg={...S.cfg,...cfg};sortAll()}
-function sortAll(){S.p.sort((a,b)=>a.nome.localeCompare(b.nome));S.m.sort((a,b)=>b.data.localeCompare(a.data));S.v.sort((a,b)=>b.data.localeCompare(a.data));S.c.sort((a,b)=>a.nome.localeCompare(b.nome));S.f.sort((a,b)=>a.nome.localeCompare(b.nome))}
+function ingest(arr){const n={p:[],m:[],v:[],c:[],f:[],u:[],o:[]};let cfg=null;for(const d of arr){if(!d||!d.t)continue;if(d.t==='cfg')cfg=d;else if(n[d.t])n[d.t].push(d)}Object.assign(S,n);if(cfg)S.cfg={...S.cfg,...cfg};sortAll()}
+function sortAll(){S.o.sort((a,b)=>String(b.data).localeCompare(String(a.data)));S.p.sort((a,b)=>a.nome.localeCompare(b.nome));S.m.sort((a,b)=>b.data.localeCompare(a.data));S.v.sort((a,b)=>b.data.localeCompare(a.data));S.c.sort((a,b)=>a.nome.localeCompare(b.nome));S.f.sort((a,b)=>a.nome.localeCompare(b.nome))}
 function lsSave(){try{localStorage.setItem(LS,JSON.stringify(all()))}catch(e){}}
 try{const r=JSON.parse(localStorage.getItem(LS)||'null');if(Array.isArray(r))ingest(r)}catch(e){}
 try{document.body.classList.toggle('hide',localStorage.getItem(LS+'-hide')==='1')}catch(e){}
@@ -263,7 +266,7 @@ function regMe(){return;const id='usr-'+ME.toLowerCase().normalize('NFD').replac
 const myName=()=>{if(PERFIL&&PERFIL.nome)return PERFIL.nome;try{return localStorage.getItem(LS+'-nome')||''}catch(e){return ''}};
 let ROLE='admin',MYUID=null,PERFIL=null,FS=null,PERFIS=[],SEC=null;
 const PAPEIS={admin:'Administrador',vendedor:'Vendedor / Caixa',estoque:'Estoquista'};
-const PERM={vendedor:['vender','vendas','clientes','config'],estoque:['produtos','estoque','inventario','fornecedores','config']};
+const PERM={vendedor:['vender','vendas','servicos','clientes','config'],estoque:['produtos','estoque','inventario','fornecedores','config']};
 const HOME={admin:'inicio',vendedor:'vender',estoque:'produtos'};
 const isAdm=()=>ROLE==='admin';
 const can=r=>ROLE==='admin'||(PERM[ROLE]||[]).includes(r);
@@ -351,6 +354,7 @@ V.inicio=()=>{
   const tot=a=>a.reduce((s,v)=>s+(+v.total||0),0);
   const ctl=S.p.filter(p=>p.mov!==false),custo=ctl.reduce((s,p)=>s+Math.max(0,+p.qtd||0)*(+p.custo||0),0),venda=ctl.reduce((s,p)=>s+Math.max(0,+p.qtd||0)*(+p.preco||0),0);
   const low=S.p.filter(isLow);
+  const om=S.o.filter(o=>o.status==='entregue'&&o.entregue&&monthKey(localISO(new Date(o.entregue)))===mk),oc=om.map(osCalc),ofat=oc.reduce((s,c)=>s+c.total,0),oluc=oc.reduce((s,c)=>s+c.lucro,0),oab=S.o.filter(o=>!['entregue','cancelada'].includes(o.status)).length;
   const lucro=vm.reduce((s,v)=>s+(+v.total||0)-(v.itens||[]).reduce((a,i)=>a+(+i.custo||0)*i.qtd,0),0);
   const months=[];for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const k=localISO(d).slice(0,7);months.push({l:MES[d.getMonth()],v:tot(vendasOk().filter(v=>monthKey(localISO(new Date(v.data)))===k))})}
   const mx=Math.max(1,...months.map(m=>m.v));
@@ -363,6 +367,7 @@ V.inicio=()=>{
   </div>
   <div class="grid">
    <div class="card"><div class="k"><span class="ic b">${I('dollar')}</span>Vendido em ${MESL[now.getMonth()]}</div><div class="big">${M(tot(vm))}</div><div class="sub">${vm.length} venda${vm.length==1?'':'s'} · lucro bruto ${M(lucro)}</div></div>
+   <div class="card"><div class="k"><span class="ic g">${I('tool')}</span>Serviços em ${MESL[now.getMonth()]}</div><div class="big">${M(ofat)}</div><div class="sub">${oc.length} entregue${oc.length==1?'':'s'} · lucro ${M(oluc)} · ${oab} em aberto</div></div>
    <div class="card"><div class="k"><span class="ic a">${I('box')}</span>Estoque a preço de venda</div><div class="big">${M(venda)}</div><div class="sub">margem potencial ${M(venda-custo)}</div></div>
   </div>
   <section class="panel"><header>${I('chart')}<div><h2>Veja suas <b>vendas</b></h2><p>Total vendido por mês nos últimos seis meses.</p></div></header>
@@ -432,6 +437,69 @@ const pessoas=t=>()=>{const [T,ic,s]=KIND[t];const q=UI.cq.toLowerCase();const r
   <section class="panel" id="clist">${S[t].length?(r.length?`<div class="list">${r.map(x=>`<button class="row" data-a="editc" data-id="${x.id}" data-k="${t}"><div class="th">${esc(x.nome.slice(0,2).toUpperCase())}</div><div class="rt"><b>${esc(x.nome)}</b><small>${esc([x.fone,x.cidade].filter(Boolean).join(' · ')||'sem contato')}</small></div></button>`).join('')}</div>`:emptyBox('search','Nada encontrado','')):emptyBox(ic,'Nenhum '+s+' cadastrado','',`<button class="btn ok" data-a="newc" data-id="${t}">${I('plus')}Adicionar ${s}</button>`)}</section></div>`};
 V.clientes=pessoas('c');V.fornecedores=pessoas('f');
 
+
+/* ---------- ORDENS DE SERVIÇO ---------- */
+const OST={aberta:['Aberta','b'],conserto:['Em conserto','a'],peca:['Aguardando peça','a'],pronta:['Pronta p/ retirada','g'],entregue:['Entregue',''],cancelada:['Cancelada','r']};
+const osBadge=s=>{const x=OST[s]||[s,''];return `<span class="q ${x[1]==='r'?'low':x[1]==='a'?'mid':x[1]==='b'?'off':''}">${x[0]}</span>`};
+function osCalc(o){const pv=(o.pecas||[]).reduce((s,p)=>s+p.qtd*(+p.preco||0),0),pc=(o.pecas||[]).reduce((s,p)=>s+p.qtd*(+p.custo||0),0),dp=(o.despesas||[]).reduce((s,d)=>s+(+d.valor||0),0),mo=+o.mao||0,de=+o.desc||0;
+  const total=Math.max(0,pv+mo-de);return {pv,pc,dp,mo,de,total,custo:pc+dp,lucro:total-pc-dp}}
+let OSD=null,OSF='abertas';
+V.servicos=()=>{
+  const q=(UI.oq||'').toLowerCase().trim();
+  const f={abertas:o=>!['entregue','cancelada'].includes(o.status),pronta:o=>o.status==='pronta',entregue:o=>o.status==='entregue',todas:()=>true}[OSF];
+  const r=S.o.filter(f).filter(o=>!q||[o.num,o.cliente,o.fone,o.aparelho,o.imei,o.servico].some(x=>String(x||'').toLowerCase().includes(q)));
+  const mk=monthKey(localISO(new Date())),om=S.o.filter(o=>o.status==='entregue'&&o.entregue&&monthKey(localISO(new Date(o.entregue)))===mk).map(osCalc);
+  const fat=om.reduce((s,c)=>s+c.total,0),desp=om.reduce((s,c)=>s+c.custo,0);
+  return head('Ordens de serviço','tool','Serviços',`<button class="btn ok" data-a="osnew">${I('plus')}Nova OS</button>`)+`<div class="wrap">
+  ${isAdm()?`<div class="grid"><div class="card"><div class="k"><span class="ic b">${I('dollar')}</span>Faturado em serviços (${MESL[new Date().getMonth()]})</div><div class="big">${M(fat)}</div><div class="sub">${om.length} OS entregue${om.length==1?'':'s'}</div></div>
+   <div class="card"><div class="k"><span class="ic r">${I('down')}</span>Despesas dos serviços</div><div class="big">${M(desp)}</div><div class="sub">peças a preço de custo + despesas extras</div></div>
+   <div class="card"><div class="k"><span class="ic g">${I('up')}</span>Lucro dos serviços</div><div class="big">${M(fat-desp)}</div><div class="sub">${fat?'margem '+qn(((fat-desp)/fat*100).toFixed(0))+'%':'sem serviços entregues'}</div></div></div>`:''}
+  <label class="search">${I('search')}<input id="oq" data-s="o" placeholder="Buscar por nº, cliente, telefone, aparelho ou IMEI" value="${esc(UI.oq||'')}" autocomplete="off"></label>
+  <div class="chips">${[['abertas','Em aberto'],['pronta','Prontas'],['entregue','Entregues'],['todas','Todas']].map(([k,l])=>`<button class="chip ${OSF===k?'on':''}" data-a="osf" data-id="${k}">${l} (${S.o.filter({abertas:o=>!['entregue','cancelada'].includes(o.status),pronta:o=>o.status==='pronta',entregue:o=>o.status==='entregue',todas:()=>true}[k]).length})</button>`).join('')}</div>
+  <section class="panel" id="olist">${r.length?`<div class="list">${r.map(o=>`<button class="row" data-a="osview" data-id="${o.id}"><div class="th">#${o.num}</div><div class="rt"><b>${esc(o.cliente||'Sem nome')} · ${esc(o.aparelho||'')}</b><small>${esc(o.servico||'')}${o.previsao?' · previsão '+esc(o.previsao.split('-').reverse().join('/')):''}</small></div><div class="rr"><b>${money(osCalc(o).total)}</b>${osBadge(o.status)}</div></button>`).join('')}</div>`:emptyBox('tool',S.o.length?'Nenhuma OS aqui':'Nenhuma ordem de serviço','Abra uma OS para cada aparelho que entrar para conserto.',S.o.length?'':`<button class="btn ok" data-a="osnew">${I('plus')}Nova OS</button>`)}</section></div>`};
+function osPecasHTML(){const o=OSD;return (o.pecas.length?`<div class="panel"><div class="list">${o.pecas.map((p,k)=>`<div class="ci" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--line)"><div class="rt"><b>${esc(p.nome)}</b><small>${qn(p.qtd)} × ${money(p.preco)}${isAdm()?' · custo '+money(p.custo):''}</small></div><b>${money(p.qtd*p.preco)}</b><button type="button" class="ib" data-a="osrmp" data-id="${k}" aria-label="Remover peça">${I('trash')}</button></div>`).join('')}</div></div>`:'<div class="note">Nenhuma peça adicionada. Se o serviço usa peça do estoque, adicione abaixo: ela sai do estoque ao salvar a OS.</div>')+
+ `<div class="two"><label class="fld">Peça do estoque<select id="os-pid"><option value="">Escolha…</option>${S.p.map(p=>`<option value="${p.id}">${esc(p.nome)} — ${money(p.preco)} (estoque ${qn(p.qtd)})</option>`).join('')}</select></label>
+ <div class="fld">Quantidade<div class="ig"><input id="os-pq" inputmode="decimal" value="1"><button type="button" class="btn gh sm" data-a="osaddp">${I('plus')}Adicionar</button></div></div></div>`}
+function osDespHTML(){const o=OSD;return (o.despesas.length?`<div class="panel"><div class="list">${o.despesas.map((d,k)=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--line)"><div class="rt"><b>${esc(d.desc)}</b></div><b>${money(d.valor)}</b><button type="button" class="ib" data-a="osrmd" data-id="${k}" aria-label="Remover despesa">${I('trash')}</button></div>`).join('')}</div></div>`:'')+
+ `<div class="two"><label class="fld">Despesa extra (ex.: frete, peça comprada fora)<input id="os-dd" placeholder="Descrição"></label><div class="fld">Valor (R$)<div class="ig"><input id="os-dv" inputmode="decimal" placeholder="0,00"><button type="button" class="btn gh sm" data-a="osaddd">${I('plus')}Adicionar</button></div></div></div>`}
+function osTotHTML(){const c=osCalc(OSD);return `<dl class="dl"><dt>Peças</dt><dd>${money(c.pv)}</dd><dt>Mão de obra</dt><dd>${money(c.mo)}</dd>${c.de?`<dt>Desconto</dt><dd>-${money(c.de)}</dd>`:''}<dt style="font-weight:600;color:var(--ink)">Total para o cliente</dt><dd style="font-size:18px">${money(c.total)}</dd>
+ ${isAdm()?`<dt>Custo das peças</dt><dd>${money(c.pc)}</dd><dt>Despesas extras</dt><dd>${money(c.dp)}</dd><dt style="font-weight:600;color:var(--ink)">Lucro</dt><dd style="color:${c.lucro<0?'var(--red)':'var(--green)'}">${money(c.lucro)}</dd>`:''}</dl>`}
+function osForm(){const o=OSD;const n=!o.id;
+ return `<form data-f="os"><div class="tabs">${['Cliente','Aparelho e serviço','Peças','Valores'].map((t,i)=>`<button type="button" class="tab ${i?'':'on'}" data-a="tab" data-id="${i}">${t}</button>`).join('')}</div>
+ <div class="pane on" data-p="0">
+  <label class="fld">Nome do cliente *<input name="cliente" list="dl-oc" value="${esc(o.cliente||'')}" autocomplete="off" id="os-cli"><datalist id="dl-oc">${S.c.map(c=>`<option value="${esc(c.nome)}">`).join('')}</datalist></label>
+  <div class="two"><label class="fld">Telefone / WhatsApp<input name="fone" id="os-fone" inputmode="tel" value="${esc(o.fone||'')}"></label><label class="fld">CPF<input name="doc" id="os-doc" value="${esc(o.doc||'')}"></label></div>
+  <label class="fld">Endereço / observações do cliente<input name="end" value="${esc(o.end||'')}"></label></div>
+ <div class="pane" data-p="1">
+  <div class="two"><label class="fld">Aparelho (marca e modelo) *<input name="aparelho" value="${esc(o.aparelho||'')}" placeholder="Ex.: iPhone 13 Pro"></label><label class="fld">IMEI / nº de série<input name="imei" value="${esc(o.imei||'')}"></label></div>
+  <label class="fld">Serviço (o que fazer) *<input name="servico" value="${esc(o.servico||'')}" placeholder="Ex.: Troca de tela"></label>
+  <label class="fld">Defeito relatado pelo cliente<textarea name="defeito" rows="2">${esc(o.defeito||'')}</textarea></label>
+  <label class="fld">Observações do trabalho<textarea name="obs" rows="3" placeholder="Ex.: trocar conector da tampa traseira, aparelho com tela trincada no canto">${esc(o.obs||'')}</textarea></label>
+  <label class="fld">Acessórios deixados<input name="acess" value="${esc(o.acess||'')}" placeholder="Ex.: capinha, chip"></label>
+  <div class="two"><label class="fld">Técnico responsável<input name="tecnico" value="${esc(o.tecnico||'')}"></label><label class="fld">Previsão de entrega<input name="previsao" type="date" value="${esc(o.previsao||'')}"></label></div>
+  <label class="fld">Situação<select name="status">${Object.entries(OST).filter(([k])=>k!=='cancelada'&&(k!=='entregue'||o.status==='entregue')).map(([k,v])=>`<option value="${k}" ${o.status===k?'selected':''}>${v[0]}</option>`).join('')}</select></label></div>
+ <div class="pane" data-p="2"><div id="os-pecas" style="display:grid;gap:12px">${osPecasHTML()}</div></div>
+ <div class="pane" data-p="3">
+  <div class="two"><label class="fld">Mão de obra (R$)<input name="mao" id="os-mao" inputmode="decimal" value="${o.mao?qn(o.mao):''}" placeholder="0,00"></label><label class="fld">Desconto (R$)<input name="desc" id="os-desc" inputmode="decimal" value="${o.desc?qn(o.desc):''}" placeholder="0,00"></label></div>
+  <div id="os-desp" style="display:grid;gap:12px">${osDespHTML()}</div>
+  <div class="card" id="os-tot">${osTotHTML()}</div></div>
+ <div class="mf"><button type="button" class="btn gh" data-a="close">Cancelar</button><button class="btn ok">${n?'Abrir OS':'Salvar OS'}</button></div></form>`}
+function osView(o){const c=osCalc(o);const cl=S.c.find(x=>x.nome===o.cliente);const fone=String(o.fone||(cl&&cl.fone)||'').replace(/\D/g,'');
+ const nx={aberta:['conserto','Iniciar conserto'],conserto:['pronta','Marcar como pronta'],peca:['conserto','Peça chegou'],pronta:['entregue','Entregar ao cliente']}[o.status];
+ return `<div style="display:grid;gap:14px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b style="font-size:19px">${esc(o.aparelho||'')}</b>${osBadge(o.status)}</div>
+ <dl class="dl"><dt>Cliente</dt><dd>${esc(o.cliente||'')}</dd>${o.fone?`<dt>Telefone</dt><dd>${esc(o.fone)}</dd>`:''}${o.doc?`<dt>CPF</dt><dd>${esc(o.doc)}</dd>`:''}${o.imei?`<dt>IMEI</dt><dd>${esc(o.imei)}</dd>`:''}<dt>Serviço</dt><dd>${esc(o.servico||'')}</dd>${o.tecnico?`<dt>Técnico</dt><dd>${esc(o.tecnico)}</dd>`:''}<dt>Entrada</dt><dd>${dt(o.data)}</dd>${o.previsao?`<dt>Previsão</dt><dd>${esc(o.previsao.split('-').reverse().join('/'))}</dd>`:''}${o.entregue?`<dt>Entregue</dt><dd>${dt(o.entregue)} · ${esc(o.pgto||'')}</dd>`:''}<dt>Aberta por</dt><dd>${esc(o.por||'')}</dd></dl>
+ ${o.defeito||o.obs||o.acess?`<div class="note">${o.defeito?`<b>Defeito:</b> ${esc(o.defeito)}<br>`:''}${o.obs?`<b>Observações:</b> ${esc(o.obs)}<br>`:''}${o.acess?`<b>Acessórios:</b> ${esc(o.acess)}`:''}</div>`:''}
+ ${(o.pecas||[]).length?`<div class="panel"><div class="list">${o.pecas.map(p=>`<div class="row" style="cursor:default"><div class="rt"><b>${esc(p.nome)}</b><small>${qn(p.qtd)} × ${money(p.preco)}</small></div><div class="rr"><b>${money(p.qtd*p.preco)}</b></div></div>`).join('')}</div></div>`:''}
+ <div class="card">${(()=>{const s=OSD;OSD=o;const h=osTotHTML();OSD=s;return h})()}</div>
+ <div class="mf" style="flex-wrap:wrap">${o.status!=='entregue'&&o.status!=='cancelada'?`<button class="btn gh" data-a="osedit" data-id="${o.id}">${I('edit')}Editar</button>${nx?`<button class="btn ok" data-a="osst" data-id="${o.id}" data-s="${nx[0]}">${nx[1]}</button>`:''}`:''}
+ ${o.status!=='entregue'&&o.status!=='cancelada'&&isAdm()?`<button class="btn gh" data-a="oscancel" data-id="${o.id}">Cancelar OS</button>`:''}
+ <button class="btn gh" data-a="oscopy" data-id="${o.id}">Copiar comprovante</button><a class="btn ok" target="_blank" rel="noopener" href="https://wa.me/${fone?(fone.length<=11?'55'+fone:fone):''}?text=${encodeURIComponent(osTexto(o))}">${I('share')}WhatsApp</a></div></div>`}
+function osTexto(o){const c=osCalc(o);return `*${S.cfg.empresa}* – Ordem de serviço #${o.num}\nCliente: ${o.cliente}\nAparelho: ${o.aparelho}${o.imei?' (IMEI '+o.imei+')':''}\nServiço: ${o.servico}\nSituação: ${(OST[o.status]||[o.status])[0]}`+((o.pecas||[]).length?'\nPeças: '+o.pecas.map(p=>qn(p.qtd)+'x '+p.nome).join(', '):'')+`\nMão de obra: ${money(c.mo)}`+(c.de?`\nDesconto: -${money(c.de)}`:'')+`\n*Total: ${money(c.total)}*`+(o.previsao?`\nPrevisão: ${o.previsao.split('-').reverse().join('/')}`:'')}
+function osSalvar(o,old){
+  const before={},after={};(old&&old.pecas||[]).forEach(p=>before[p.pid]=(before[p.pid]||0)+p.qtd);(o.pecas||[]).forEach(p=>after[p.pid]=(after[p.pid]||0)+p.qtd);
+  put(o);
+  new Set([...Object.keys(before),...Object.keys(after)]).forEach(pid=>{const d=(after[pid]||0)-(before[pid]||0),p=P(pid);if(!d||!p||p.mov===false)return;
+    if(d>0)mover(pid,'S',d,'OS #'+o.num,{ref:o.id});else mover(pid,'E',-d,'OS #'+o.num+' (peça devolvida)',{ref:o.id})})}
 V.relatorios=()=>{
   const g={};S.p.filter(p=>p.mov!==false).forEach(p=>{const k=p.grupo||'Sem grupo';g[k]=g[k]||{n:0,q:0,c:0,v:0};g[k].n++;g[k].q+=Math.max(0,+p.qtd||0);g[k].c+=Math.max(0,+p.qtd||0)*(+p.custo||0);g[k].v+=Math.max(0,+p.qtd||0)*(+p.preco||0)});
   const top={};vendasOk().forEach(v=>(v.itens||[]).forEach(i=>{top[i.pid]=top[i.pid]||{nome:i.nome,q:0,t:0};top[i.pid].q+=i.qtd;top[i.pid].t+=i.qtd*i.preco}));
@@ -498,7 +566,7 @@ V.equipe=()=>{
   return head('Equipe e acessos','users','Equipe',`<button class="btn ok" data-a="newu">${I('plus')}Novo login</button>`)+`<div class="wrap">
   <div class="note"><b>Administrador:</b> acesso total. <b>Vendedor / Caixa:</b> só vende, vê as próprias vendas e cadastra clientes. <b>Estoquista:</b> produtos, entradas, saídas, ajustes, inventário e fornecedores (sem vendas e sem relatórios).</div>
   <section class="panel">${PERFIS.length?`<div class="list">${PERFIS.map(p=>`<button class="row" data-a="editu" data-id="${p.id}"><div class="th">${esc(String(p.nome||'?').slice(0,2).toUpperCase())}</div><div class="rt"><b>${esc(p.nome)}${p.id===MYUID?' (você)':''}</b><small>${esc(p.email||'')}</small></div><div class="rr"><span class="q ${p.ativo===false?'low':p.papel==='admin'?'':'mid'}">${p.ativo===false?'Bloqueado':esc(PAPEIS[p.papel]||p.papel)}</span></div></button>`).join('')}</div>`:emptyBox('users','Carregando equipe…','')}</section></div>`};
-const TITLE={inicio:1,produtos:1,vender:1,vendas:1,estoque:1,inventario:1,clientes:1,fornecedores:1,relatorios:1,config:1,admin:1,equipe:1};
+const TITLE={inicio:1,produtos:1,vender:1,vendas:1,estoque:1,inventario:1,clientes:1,fornecedores:1,relatorios:1,config:1,admin:1,equipe:1,servicos:1};
 const route=()=>{const h=location.hash.slice(1);return TITLE[h]?h:(HOME[ROLE]||'inicio')};
 let last='';
 function render(soft){let r=route();if(ROLE&&!can(r)){r=HOME[ROLE];if(location.hash!=='#'+r){location.hash=r;return}}if(r!==last){UI.cq='';last=r}
@@ -586,6 +654,20 @@ const ACT={
   out.forEach(m=>rows.push([dt(m.data),TIPO[m.tipo][0],nm(m.por),m.nome,qn(m.qtd),'',m.motivo]));
   exportFile('lancamentos.csv','\ufeff'+rows.map(r=>r.map(csvEsc).join(';')).join('\n'),'text/csv')},
  async sair(){if(await ask('Sair deste aparelho?','Sair')&&window.__sair)window.__sair()},
+ osnew(){OSD={pecas:[],despesas:[],status:'aberta'};modal('Nova ordem de serviço',osForm())},
+ osedit(id){const o=S.o.find(x=>x.id===id);OSD=JSON.parse(JSON.stringify(o));modal('OS #'+o.num,osForm())},
+ osview(id){const o=S.o.find(x=>x.id===id);modal('OS #'+o.num,osView(o))},
+ osf(k){OSF=k;render(true)},
+ osaddp(){const pid=$('#os-pid').value,q=pn($('#os-pq').value)||1,p=P(pid);if(!p){toast('Escolha a peça');return}
+  const ex=OSD.pecas.find(x=>x.pid===pid);if(ex)ex.qtd+=q;else OSD.pecas.push({pid,nome:p.nome,qtd:q,preco:+p.preco||0,custo:+p.custo||0});$('#os-pecas').innerHTML=osPecasHTML();$('#os-tot').innerHTML=osTotHTML()},
+ osrmp(k){OSD.pecas.splice(+k,1);$('#os-pecas').innerHTML=osPecasHTML();$('#os-tot').innerHTML=osTotHTML()},
+ osaddd(){const d=$('#os-dd').value.trim(),v=pn($('#os-dv').value);if(!d||!v){toast('Informe descrição e valor');return}OSD.despesas.push({desc:d,valor:v});$('#os-desp').innerHTML=osDespHTML();$('#os-tot').innerHTML=osTotHTML()},
+ osrmd(k){OSD.despesas.splice(+k,1);$('#os-desp').innerHTML=osDespHTML();$('#os-tot').innerHTML=osTotHTML()},
+ osst(id,b){const o=S.o.find(x=>x.id===id),s=b.dataset.s;
+  if(s==='entregue'){modal('Entregar OS #'+o.num,`<form data-f="osent"><input type="hidden" name="id" value="${id}"><div class="note">Total a receber: <b>${money(osCalc(o).total)}</b></div><label class="fld">Forma de pagamento<select name="pgto">${PG.map(p=>`<option>${p}</option>`).join('')}</select></label><div class="mf"><button type="button" class="btn gh" data-a="close">Voltar</button><button class="btn ok">Confirmar entrega</button></div></form>`);return}
+  const n={...o,status:s};put(n);modal('OS #'+o.num,osView(n));render(true);toast((OST[s]||[s])[0])},
+ async oscancel(id){const o=S.o.find(x=>x.id===id);if(!await ask(`Cancelar a OS <b>#${o.num}</b>? As peças voltam para o estoque.`,'Cancelar OS','dg'))return;const n={...o,status:'cancelada',pecas:[]};osSalvar(n,o);render();toast('OS cancelada')},
+ async oscopy(id){try{await navigator.clipboard.writeText(osTexto(S.o.find(x=>x.id===id)));toast('Comprovante copiado')}catch(e){toast('Não foi possível copiar')}},
  sairnow(){window.__sair&&window.__sair()},
  newu(){modal('Novo login',`<form data-f="novou"><label class="fld">Nome<input name="nome" required placeholder="Ex.: João"></label>
   <label class="fld">E-mail (será o login)<input name="email" type="email" required autocomplete="off"></label>
@@ -638,6 +720,9 @@ document.addEventListener('input',e=>{const t=e.target;
  else if(t.dataset.s==='c'||t.dataset.s==='f'){UI.cq=t.value;const p=t.selectionStart;render(true);const n=$('[data-s]');if(n){n.focus();n.setSelectionRange(p,p)}}
  else if(t.id==='f-custo'||t.id==='f-marg'){const c=pn($('#f-custo').value),m=pn($('#f-marg').value);if(c>0&&$('#f-marg').value!=='')$('#f-preco').value=qn((c*(1+m/100)).toFixed(2))}
  else if(t.id==='f-preco'){const c=pn($('#f-custo').value),v=pn(t.value);if(c>0&&v>0)$('#f-marg').value=qn((((v/c)-1)*100).toFixed(1))}
+ else if(t.id==='os-mao'||t.id==='os-desc'){OSD.mao=pn($('#os-mao').value);OSD.desc=pn($('#os-desc').value);$('#os-tot').innerHTML=osTotHTML()}
+ else if(t.id==='os-cli'){const c=S.c.find(x=>x.nome===t.value);if(c){if(!$('#os-fone').value)$('#os-fone').value=c.fone||'';if(!$('#os-doc').value)$('#os-doc').value=c.doc||''}}
+ else if(t.dataset.s==='o'){UI.oq=t.value;const p=t.selectionStart;render(true);const n=$('#oq');if(n){n.focus();n.setSelectionRange(p,p)}}
  else if(t.id==='s-desc'){const s=+$('#s-tot').dataset.sub;$('#s-tot').textContent=money(Math.max(0,s-pn(t.value)))}});
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='vq'){e.preventDefault();const q=e.target.value.trim();if(!q)return;
  const p=S.p.find(x=>x.barras===q||x.cod===q)||(()=>{const r=S.p.filter(x=>x.nome.toLowerCase().includes(q.toLowerCase()));return r.length===1?r[0]:null})();
@@ -675,6 +760,16 @@ const FORM={
   if(!ch.length){toast('Nenhuma diferença para ajustar');return}ch.forEach(([id,q])=>mover(id,'A',q,'Inventário'));render();toast(ch.length+' produto'+(ch.length>1?'s ajustados':' ajustado'))},
  async login(f){const d=Object.fromEntries(new FormData(f));
   $('#lmsg').textContent='Entrando…';try{await window.__entrar(d.email.trim(),d.senha);render(true)}catch(e){$('#lmsg').textContent=/password|credential|user/i.test(e.code||'')?'E-mail ou senha incorretos.':'Não foi possível entrar: '+(e.code||e.message)}},
+ os(f){const d=Object.fromEntries(new FormData(f));
+  if(!d.cliente.trim()){ACT.tab(0);toast('Informe o nome do cliente');return}
+  if(!d.aparelho.trim()||!d.servico.trim()){ACT.tab(1);toast('Informe o aparelho e o serviço');return}
+  const old=OSD.id?S.o.find(x=>x.id===OSD.id):null;
+  const num=old?old.num:S.o.reduce((m,o)=>Math.max(m,+o.num||0),0)+1;
+  const o={...(old||{}),id:old?old.id:uid('o'),t:'o',num,cliente:d.cliente.trim(),fone:d.fone.trim(),doc:d.doc.trim(),end:d.end.trim(),aparelho:d.aparelho.trim(),imei:d.imei.trim(),servico:d.servico.trim(),defeito:d.defeito.trim(),obs:d.obs.trim(),acess:d.acess.trim(),tecnico:d.tecnico.trim(),previsao:d.previsao,status:d.status,
+   pecas:OSD.pecas,despesas:OSD.despesas,mao:pn(d.mao),desc:pn(d.desc),data:old?old.data:new Date().toISOString(),por:old?old.por:(myName()||''),por_uid:old?old.por_uid:MYUID};
+  if(!S.c.some(c=>c.nome.toLowerCase()===o.cliente.toLowerCase()))put({id:uid('c'),t:'c',nome:o.cliente,fone:o.fone,doc:o.doc,cidade:'',obs:''});
+  osSalvar(o,old);close();render();modal('OS #'+num+(old?' salva':' aberta'),osView(o))},
+ osent(f){const d=Object.fromEntries(new FormData(f));const o=S.o.find(x=>x.id===d.id);const n={...o,status:'entregue',pgto:d.pgto,entregue:new Date().toISOString(),entregue_por:myName()||''};put(n);close();render();modal('OS #'+o.num+' entregue',osView(n))},
  async setup(f){const d=Object.fromEntries(new FormData(f));const m=$('#gmsg');m.textContent='Configurando…';
   try{const aid=await window.__novo(d.ae.trim(),d.ap);const b=FS.batch(),now=new Date().toISOString();
    b.set(FS.doc('perfis/'+aid),{nome:d.an.trim(),email:d.ae.trim(),papel:'admin',ativo:true,criado:now});
