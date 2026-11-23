@@ -113,7 +113,7 @@ main{padding:0 0 100px}
 .tot{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-top:1px solid var(--line);font-size:18px;font-weight:600}
 .paybar{position:fixed;left:0;right:0;bottom:64px;z-index:20;background:var(--card);border-top:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 -6px 18px #0002}
 .paybar div{flex:1}.paybar small{display:block;color:var(--mut);font-size:12px}.paybar b{font-size:20px}
-.bn{position:fixed;left:0;right:0;bottom:0;z-index:25;height:64px;background:var(--card);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:env(safe-area-inset-bottom)}
+.bn{position:fixed;left:0;right:0;bottom:0;z-index:25;height:64px;background:var(--card);border-top:1px solid var(--line);display:grid;grid-auto-flow:column;grid-auto-columns:1fr;padding-bottom:env(safe-area-inset-bottom)}
 .bn a,.bn button{display:grid;justify-items:center;align-content:center;gap:2px;font-size:11px;color:var(--mut);text-decoration:none;background:none;border:0;cursor:pointer}
 .bn .on{color:var(--blue)}
 .bn .sell span{width:52px;height:52px;margin-top:-22px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;box-shadow:0 4px 14px #1d6ff266;border:4px solid var(--card)}
@@ -188,7 +188,8 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
   <a href="#clientes" data-r="clientes"><svg class="i"><use href="#i-users"/></svg>Clientes</a>
   <a href="#fornecedores" data-r="fornecedores"><svg class="i"><use href="#i-truck"/></svg>Fornecedores</a>
   <h6>Gestão</h6>
-  <a href="#admin" data-r="admin" id="nav-admin" hidden><svg class="i"><use href="#i-users"/></svg>Painel do administrador</a>
+  <a href="#equipe" data-r="equipe"><svg class="i"><use href="#i-users"/></svg>Equipe e acessos</a>
+  <a href="#admin" data-r="admin" id="nav-admin"><svg class="i"><use href="#i-users"/></svg>Painel do administrador</a>
   <a href="#relatorios" data-r="relatorios"><svg class="i"><use href="#i-chart"/></svg>Relatórios</a>
   <a href="#config" data-r="config"><svg class="i"><use href="#i-gear"/></svg>Configurações</a>
 </nav>
@@ -202,10 +203,10 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 </nav>
 <div class="modal" id="modal"><div class="sheet" role="dialog" aria-modal="true"><header><h3 id="mt"></h3><button class="ib" data-a="close" aria-label="Fechar"><svg class="i"><use href="#i-x"/></svg></button></header><div class="sb" id="mb"></div></div></div>
 <div class="toast" id="toast"></div>
+<div class="login" id="gate" hidden></div>
 <div class="login" id="login" hidden><form class="card" data-f="login"><h2>gestão<b>LR</b></h2><div class="sub" id="lmsg">Entre com o acesso da loja.</div>
 <label class="fld">E-mail<input name="email" type="email" autocomplete="username" required></label>
 <label class="fld">Senha<input name="senha" type="password" autocomplete="current-password" required></label>
-<label class="fld">Seu nome (para registrar quem vendeu)<input name="nome" autocomplete="name" placeholder="Ex.: Lucas"></label>
 <button class="btn ok">Entrar</button></form></div>
 
 <script>
@@ -258,37 +259,65 @@ let RO=false,NAME='',U=null,ADMIN=true;let ME=null;
 const NM={};
 const nm=id=>id||'Não identificado';
 async function resolveNames(ids){return;ids=[...new Set(ids)].filter(i=>i&&!(i in NM));if(!ids.length)return;ids.forEach(i=>NM[i]='Carregando…');let ps={};try{ps=await U.profiles(ids)}catch(e){}ids.forEach(i=>NM[i]=(ps[i]&&ps[i].name)||'Pessoa sem nome');if(route()==='admin')render(true)}
-function regMe(){ME=myName()||null;if(RO||!ME)return;const id='usr-'+ME.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g,'-').slice(0,60),hoje=new Date().toISOString(),o=S.u.find(x=>x.id===id);if(o&&o.ultimo&&o.ultimo.slice(0,10)===hoje.slice(0,10))return;put({...(o||{}),id,t:'u',uid:ME,primeiro:o?o.primeiro:hoje,ultimo:hoje})}
-const myName=()=>{try{return localStorage.getItem(LS+'-nome')||''}catch(e){return ''}};
-function remote(op,d){if(RO)return;if(col){queue=queue.then(()=>op==='set'?col.doc(d.id).set(JSON.parse(JSON.stringify(d))):col.doc(d.id).delete()).catch(e=>{if(e&&e.code==='quota_exceeded')toast('Limite de armazenamento atingido. Exporte e apague dados antigos.');else if(e&&e.code==='invalid_argument'){RO=true;render(true);toast('Você tem acesso só para visualizar. Peça ao dono para liberar edição.')}})}else if(mode==='wait')pend.push([op,d])}
+function regMe(){return;const id='usr-'+ME.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g,'-').slice(0,60),hoje=new Date().toISOString(),o=S.u.find(x=>x.id===id);if(o&&o.ultimo&&o.ultimo.slice(0,10)===hoje.slice(0,10))return;put({...(o||{}),id,t:'u',uid:ME,primeiro:o?o.primeiro:hoje,ultimo:hoje})}
+const myName=()=>{if(PERFIL&&PERFIL.nome)return PERFIL.nome;try{return localStorage.getItem(LS+'-nome')||''}catch(e){return ''}};
+let ROLE='admin',MYUID=null,PERFIL=null,FS=null,PERFIS=[],SEC=null;
+const PAPEIS={admin:'Administrador',vendedor:'Vendedor / Caixa',estoque:'Estoquista'};
+const PERM={vendedor:['vender','vendas','clientes','config'],estoque:['produtos','estoque','inventario','fornecedores','config']};
+const HOME={admin:'inicio',vendedor:'vender',estoque:'produtos'};
+const isAdm=()=>ROLE==='admin';
+const can=r=>ROLE==='admin'||(PERM[ROLE]||[]).includes(r);
+function remote(op,d){if(RO)return;if(col){queue=queue.then(()=>op==='set'?col.doc(d.id).set(JSON.parse(JSON.stringify(d))):col.doc(d.id).delete()).catch(e=>{if(e&&e.code==='quota_exceeded')toast('Limite de armazenamento atingido. Exporte e apague dados antigos.');else if(e&&(e.code==='permission-denied'||e.code==='invalid_argument'))toast('Seu login não tem permissão para isso. Fale com o administrador.')})}else if(mode==='wait')pend.push([op,d])}
 function put(d){if(RO){toast('Você tem acesso só para visualizar.');return}if(d.t==='cfg')S.cfg=d;else{const a=S[d.t],i=a.findIndex(x=>x.id===d.id);if(i<0)a.push(d);else a[i]=d}sortAll();lsSave();remote('set',d)}
 function del(d){if(RO){toast('Você tem acesso só para visualizar.');return}S[d.t]=S[d.t].filter(x=>x.id!==d.id);lsSave();remote('del',d)}
 function setSync(m){mode=m;const el=$('#sync');el.className='sync '+m;el.innerHTML='<span>'+({cloud:'Sincronizado',local:'Sem conexão – sincroniza ao voltar',wait:'Conectando…'}[m])+'</span>';if(m==='local')pend=[]}
+function gate(kind){const g=$('#gate');if(!kind){g.hidden=true;return}g.hidden=false;
+  g.innerHTML=kind==='setup'?`<form class="card" data-f="setup"><h2>gestão<b>LR</b></h2><div class="sub">Primeira configuração dos acessos. Crie o login do <b>administrador</b> (acesso total). Esta conta que está aberta agora vira <b>vendedor/caixa</b>.</div>
+  <label class="fld">Nome do administrador<input name="an" placeholder="Ex.: Eric" required></label>
+  <label class="fld">E-mail do administrador<input name="ae" type="email" required autocomplete="off"></label>
+  <label class="fld">Senha do administrador (mín. 6)<input name="ap" type="password" minlength="6" required autocomplete="new-password"></label>
+  <label class="fld">Seu nome (esta conta, vendedor)<input name="vn" placeholder="Ex.: Lucas" required></label>
+  <div class="sub" id="gmsg"></div><button class="btn ok">Configurar acessos</button><button type="button" class="btn gh" data-a="sairnow">Sair</button></form>`
+  :`<div class="card"><h2>gestão<b>LR</b></h2><div class="sub">Seu login ainda não foi liberado ou está bloqueado. Peça ao administrador para liberar seu acesso na tela <b>Equipe</b>.</div><button class="btn gh" data-a="sairnow">Sair</button></div>`}
 (()=>{
   if(typeof firebase==='undefined'||!FIREBASE_CONFIG.apiKey){setSync('local');return}
   firebase.initializeApp(FIREBASE_CONFIG);
-  const fs=firebase.firestore();
+  const fs=FS=firebase.firestore();
   try{fs.enablePersistence({synchronizeTabs:true}).catch(()=>{})}catch(e){}
-  let unsub=null;
-  firebase.auth().onAuthStateChanged(user=>{
-    if(unsub){unsub();unsub=null}
-    if(!user){col=null;$('#login').hidden=false;setSync('wait');return}
-    $('#login').hidden=true;
+  let unsub=null,unsP=null,unsT=null;
+  const stopLoja=()=>{if(unsub){unsub();unsub=null}if(unsT){unsT();unsT=null}col=null};
+  function startLoja(){if(unsub)return;
     col=fs.collection('loja');let first=true;
     const timer=setTimeout(()=>{if(mode==='wait')setSync('local')},10000);
     unsub=col.onSnapshot({includeMetadataChanges:true},s=>{
       clearTimeout(timer);
       if(first&&!s.metadata.fromCache){first=false;
-        if(s.empty){for(const x of all())remote('set',x);lsSave();regMe();render(true);setSync('cloud');return}
-        const p=pend;pend=[];setTimeout(()=>{p.forEach(([o,x])=>remote(o,x));regMe()},0)}
+        if(s.empty&&isAdm()){for(const x of all())remote('set',x);lsSave();render(true);setSync('cloud');return}
+        const p=pend;pend=[];setTimeout(()=>{p.forEach(([o,x])=>remote(o,x))},0)}
       if(s.metadata.fromCache&&s.empty)return;
       const before=sig();ingest(s.docs.map(x=>({...x.data(),id:x.id})));
       if(sig()!==before){lsSave();render(true)}
       setSync(s.metadata.fromCache?'local':'cloud')
-    },e=>{clearTimeout(timer);setSync('local');toast('Sem permissão no banco de dados. Confira as regras do Firestore.')});
+    },e=>{clearTimeout(timer);setSync('local');toast('Sem permissão para ler os dados.')});
+    if(isAdm())unsT=fs.collection('perfis').onSnapshot(s=>{PERFIS=s.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>String(a.nome).localeCompare(b.nome));if(route()==='equipe')render(true)},()=>{});
+  }
+  firebase.auth().onAuthStateChanged(user=>{
+    stopLoja();if(unsP){unsP();unsP=null}
+    if(!user){ROLE=null;PERFIL=null;gate();$('#login').hidden=false;setSync('wait');return}
+    $('#login').hidden=true;MYUID=user.uid;
+    unsP=fs.doc('perfis/'+user.uid).onSnapshot(d=>{
+      PERFIL=d.exists?d.data():null;const nr=PERFIL&&PERFIL.ativo!==false?PERFIL.papel:null;
+      if(!nr){ROLE=null;stopLoja();fs.doc('sistema/setup').get().then(s=>gate(s.exists?'negado':'setup')).catch(()=>gate('negado'));return}
+      const changed=nr!==ROLE;ROLE=nr;gate();
+      if(changed){stopLoja();S.p=[];S.m=[];S.v=[];S.c=[];S.f=[];S.u=[]}
+      startLoja();if(!can(route()))location.hash=HOME[ROLE];render(true)
+    },()=>gate('negado'));
   });
   window.__sair=()=>firebase.auth().signOut();
   window.__entrar=(em,pw)=>firebase.auth().signInWithEmailAndPassword(em,pw);
+  window.__novo=async(email,pw)=>{if(!SEC)SEC=firebase.initializeApp(FIREBASE_CONFIG,'sec');const c=await SEC.auth().createUserWithEmailAndPassword(email,pw);const id=c.user.uid;await SEC.auth().signOut();return id};
+  window.__senha=pw=>firebase.auth().currentUser.updatePassword(pw);
+  window.__email=()=>firebase.auth().currentUser&&firebase.auth().currentUser.email;
 })();
 
 /* ---------- regras de estoque ---------- */
@@ -299,7 +328,7 @@ function mover(pid,tipo,q,motivo,extra={}){const p=P(pid);if(!p)return;const old
   const delta=tipo==='A'?q-old:(tipo==='E'?q:-q);if(!delta)return;
   const np={...p,qtd:+(old+delta).toFixed(3)};
   if(tipo==='E'&&extra.custo>0)np.custo=old>0?+(((old*(+p.custo||0))+q*extra.custo)/(old+q)).toFixed(4):extra.custo;
-  put(np);put({id:uid('m'),t:'m',por:myName()||'',pid,nome:p.nome,tipo,qtd:+delta.toFixed(3),saldo:np.qtd,motivo:motivo||'',ref:extra.ref||'',forn:extra.forn||'',custo:extra.custo||0,data:new Date().toISOString()})}
+  put(np);put({id:uid('m'),t:'m',por:myName()||'',por_uid:MYUID,pid,nome:p.nome,tipo,qtd:+delta.toFixed(3),saldo:np.qtd,motivo:motivo||'',ref:extra.ref||'',forn:extra.forn||'',custo:extra.custo||0,data:new Date().toISOString()})}
 
 /* ---------- interface ---------- */
 let tt;function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>el.classList.remove('on'),2600)}
@@ -378,9 +407,9 @@ function vtiles(){const q=UI.pq.toLowerCase().trim();
 
 V.vendas=()=>{
   const hoje=localISO(new Date());
-  const r=S.v.filter(v=>{const d=localISO(new Date(v.data));return UI.vf==='todas'||(UI.vf==='hoje'?sameDay(d,hoje):monthKey(d)===monthKey(hoje))});
+  const r=S.v.filter(v=>isAdm()||v.por_uid===MYUID).filter(v=>{const d=localISO(new Date(v.data));return UI.vf==='todas'||(UI.vf==='hoje'?sameDay(d,hoje):monthKey(d)===monthKey(hoje))});
   const t=r.filter(v=>v.status!=='cancelada').reduce((s,v)=>s+v.total,0);
-  return head('Vendas','list','Vendas',`<a class="btn ok" href="#vender">${I('plus')}Nova venda</a>`)+`<div class="wrap">
+  return head(isAdm()?'Vendas':'Minhas vendas','list','Vendas',`<a class="btn ok" href="#vender">${I('plus')}Nova venda</a>`)+`<div class="wrap">
   <div class="chips">${[['hoje','Hoje'],['mes','Este mês'],['todas','Todas']].map(([k,l])=>`<button class="chip ${UI.vf===k?'on':''}" data-a="vf" data-id="${k}">${l}</button>`).join('')}</div>
   <div class="kpis"><div class="card"><div class="sub">Total no período</div><div class="big" style="margin:4px 0 0">${M(t)}</div></div><div class="card"><div class="sub">Vendas</div><div class="big" style="margin:4px 0 0">${r.filter(v=>v.status!=='cancelada').length}</div></div></div>
   <section class="panel">${r.length?`<div class="list">${r.map(v=>`<button class="row" data-a="vview" data-id="${v.id}"><div class="th">#${v.num}</div><div class="rt"><b>${esc(v.cliente||'Consumidor final')}</b><small>${dt(v.data)} · ${esc(v.pgto)}</small></div><div class="rr"><b style="${v.status==='cancelada'?'text-decoration:line-through;color:var(--mut)':''}">${money(v.total)}</b>${v.status==='cancelada'?'<span class="q low">cancelada</span>':''}</div></button>`).join('')}</div>`:emptyBox('list','Nenhuma venda no período','As vendas finalizadas no PDV aparecem aqui.')}</section></div>`};
@@ -454,25 +483,30 @@ V.admin=()=>{
    <div class="list">${lst}</div></section>
   <p class="sub" style="margin:0">Quem fez cada lançamento vem do nome digitado no login (ou em Configurações) de cada aparelho.</p></div>`};
 V.config=()=>head('Configurações','gear','Configurações')+`<div class="wrap">
- <section class="panel"><header><div><h2>Dados da <b>empresa</b></h2></div></header><div class="sb"><form data-f="cfg">
+ <section class="panel"><header><div><h2>Minha <b>conta</b></h2><p>${esc(myName())} · ${esc(PAPEIS[ROLE]||'')}${window.__email&&window.__email()?' · '+esc(window.__email()):''}</p></div></header><div class="sb"><form data-f="senha">
+ <label class="fld">Nova senha (mín. 6)<input name="pw" type="password" minlength="6" autocomplete="new-password" required></label>
+ <div class="acts"><button class="btn ok">Trocar minha senha</button><button type="button" class="btn gh" data-a="sair">Sair deste aparelho</button></div></form></div></section>
+ ${isAdm()?`<section class="panel"><header><div><h2>Dados da <b>empresa</b></h2></div></header><div class="sb"><form data-f="cfg">
  <label class="fld">Nome da empresa<input name="empresa" value="${esc(S.cfg.empresa)}"></label>
- <label class="fld">Seu nome (só neste aparelho, aparece na saudação)<input name="usuario" value="${esc(myName()||NAME)}"></label>
  <div class="mf" style="position:static"><button class="btn ok">Salvar</button></div></form></div></section>
- <section class="panel"><header><div><h2>Backup <b>dos dados</b></h2><p>${mode==='cloud'?'Todos os aparelhos conectados com o acesso da loja veem e alteram os mesmos dados, na hora.':'Seus dados estão só neste navegador. Faça backup com frequência.'}</p></div></header><div class="sb acts">
+ <section class="panel"><header><div><h2>Backup <b>dos dados</b></h2><p>Exporte de vez em quando para guardar uma cópia.</p></div></header><div class="sb acts">
  <button class="btn gh" data-a="bkp">Exportar backup</button>
  <label class="btn gh">Importar backup<input type="file" accept=".json,application/json" data-imp="1" hidden></label>
- <button class="btn dg" data-a="wipe">Apagar tudo</button></div></section>
- <section class="panel"><header><div><h2>Sair <b>deste aparelho</b></h2><p>O estoque continua salvo para os outros.</p></div></header><div class="sb"><button class="btn gh" data-a="sair">Sair</button></div></section></div>`;
-
-const TITLE={inicio:1,produtos:1,vender:1,vendas:1,estoque:1,inventario:1,clientes:1,fornecedores:1,relatorios:1,config:1,admin:1};
-const route=()=>{const h=location.hash.slice(1);return TITLE[h]?h:'inicio'};
+ <button class="btn dg" data-a="wipe">Apagar tudo</button></div></section>`:''}</div>`;
+V.equipe=()=>{
+  const n={admin:0,vendedor:0,estoque:0};PERFIS.forEach(p=>n[p.papel]=(n[p.papel]||0)+1);
+  return head('Equipe e acessos','users','Equipe',`<button class="btn ok" data-a="newu">${I('plus')}Novo login</button>`)+`<div class="wrap">
+  <div class="note"><b>Administrador:</b> acesso total. <b>Vendedor / Caixa:</b> só vende, vê as próprias vendas e cadastra clientes. <b>Estoquista:</b> produtos, entradas, saídas, ajustes, inventário e fornecedores (sem vendas e sem relatórios).</div>
+  <section class="panel">${PERFIS.length?`<div class="list">${PERFIS.map(p=>`<button class="row" data-a="editu" data-id="${p.id}"><div class="th">${esc(String(p.nome||'?').slice(0,2).toUpperCase())}</div><div class="rt"><b>${esc(p.nome)}${p.id===MYUID?' (você)':''}</b><small>${esc(p.email||'')}</small></div><div class="rr"><span class="q ${p.ativo===false?'low':p.papel==='admin'?'':'mid'}">${p.ativo===false?'Bloqueado':esc(PAPEIS[p.papel]||p.papel)}</span></div></button>`).join('')}</div>`:emptyBox('users','Carregando equipe…','')}</section></div>`};
+const TITLE={inicio:1,produtos:1,vender:1,vendas:1,estoque:1,inventario:1,clientes:1,fornecedores:1,relatorios:1,config:1,admin:1,equipe:1};
+const route=()=>{const h=location.hash.slice(1);return TITLE[h]?h:(HOME[ROLE]||'inicio')};
 let last='';
-function render(soft){const r=route();if(r!==last){UI.cq='';last=r}
+function render(soft){let r=route();if(ROLE&&!can(r)){r=HOME[ROLE];if(location.hash!=='#'+r){location.hash=r;return}}if(r!==last){UI.cq='';last=r}
   const a=document.activeElement,keep=soft&&a&&a.id&&$('#main').contains(a)?[a.id,a.selectionStart]:null;
   $('#main').innerHTML=(RO?'<div class="note" style="margin:12px 16px 0;background:var(--amberS);color:var(--ink)">Você está no modo <b>só visualização</b>. Para cadastrar, vender ou mexer no estoque, peça ao dono do app para te dar acesso de edição.</div>':'')+V[r]();
   document.querySelectorAll('[data-r]').forEach(e=>e.classList.toggle('on',e.dataset.r===r));
-  $('#nav-admin').hidden=!ADMIN;
-  $('#av').textContent=(S.cfg.usuario||'LR').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  document.querySelectorAll('[data-r]').forEach(e=>e.hidden=!!ROLE&&!can(e.dataset.r));document.querySelectorAll('.side h6').forEach(h6=>{let n=h6.nextElementSibling,any=false;while(n&&n.tagName==='A'){if(!n.hidden)any=true;n=n.nextElementSibling}h6.hidden=!any});
+  $('#av').textContent=(myName()||'LR').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   if(keep){const e=document.getElementById(keep[0]);if(e){e.focus();try{e.setSelectionRange(keep[1],keep[1])}catch(x){}}}
   if(!soft)scrollTo(0,0)}
 addEventListener('hashchange',()=>{$('#side').classList.remove('open');$('.shade').classList.remove('open');render()});
@@ -517,18 +551,18 @@ function cForm(t,x){x=x||{};return `<form data-f="pess"><input type="hidden" nam
  <div class="two"><label class="fld">Telefone / WhatsApp<input name="fone" inputmode="tel" value="${esc(x.fone||'')}"></label><label class="fld">CPF / CNPJ<input name="doc" value="${esc(x.doc||'')}"></label></div>
  <label class="fld">Cidade<input name="cidade" value="${esc(x.cidade||'')}"></label>
  <label class="fld">Observações<textarea name="obs" rows="3">${esc(x.obs||'')}</textarea></label>
- <div class="mf">${x.id?`<button type="button" class="btn gh" data-a="delc" data-id="${x.id}" data-k="${t}">${I('trash')}Excluir</button>`:`<button type="button" class="btn gh" data-a="close">Cancelar</button>`}<button class="btn ok">${x.id?'Salvar':'Cadastrar'}</button></div></form>`}
+ <div class="mf">${x.id&&isAdm()?`<button type="button" class="btn gh" data-a="delc" data-id="${x.id}" data-k="${t}">${I('trash')}Excluir</button>`:`<button type="button" class="btn gh" data-a="close">Cancelar</button>`}<button class="btn ok">${x.id?'Salvar':'Cadastrar'}</button></div></form>`}
 function pView(p){const ms=S.m.filter(m=>m.pid===p.id).slice(0,8);const mg=p.custo>0?((p.preco/p.custo)-1)*100:null;
  return `<div style="display:grid;gap:14px"><div style="display:flex;gap:14px;align-items:center">${p.foto?`<div class="photo" style="width:96px;height:96px"><img src="${p.foto}" alt=""></div>`:''}<div><div style="font-size:19px;font-weight:600">${esc(p.nome)}</div><div class="sub">${esc([p.cod,p.barras,p.grupo].filter(Boolean).join(' · '))}</div><div style="margin-top:6px">${qBadge(p)}</div></div></div>
  ${p.mov!==false?`<div class="acts"><button class="btn ok sm" data-a="mov" data-id="E" data-p="${p.id}">${I('down')}Entrada</button><button class="btn dg sm" data-a="mov" data-id="S" data-p="${p.id}">${I('up')}Saída</button><button class="btn gh sm" data-a="mov" data-id="A" data-p="${p.id}">Ajustar</button></div>`:''}
  <dl class="dl"><dt>Valor de venda</dt><dd>${money(p.preco)}</dd><dt>Custo</dt><dd>${money(p.custo)}</dd><dt>Margem</dt><dd>${mg==null?'—':qn(mg.toFixed(1))+'%'}</dd><dt>Estoque mínimo</dt><dd>${qn(p.min)}</dd>${p.loc?`<dt>Localização</dt><dd>${esc(p.loc)}</dd>`:''}</dl>
  ${ms.length?`<div class="panel"><div class="list">${ms.map(movRow).join('')}</div></div>`:''}
- <div class="mf"><button class="btn gh" data-a="delp" data-id="${p.id}">${I('trash')}Excluir</button><button class="btn" data-a="editp" data-id="${p.id}">${I('edit')}Editar</button></div></div>`}
+ <div class="mf">${isAdm()?`<button class="btn gh" data-a="delp" data-id="${p.id}">${I('trash')}Excluir</button>`:''}<button class="btn" data-a="editp" data-id="${p.id}">${I('edit')}Editar</button></div></div>`}
 function recibo(v){return `*${S.cfg.empresa}*\nVenda #${v.num} – ${dt(v.data)}\n`+(v.itens||[]).map(i=>`${qn(i.qtd)}x ${i.nome} – ${money(i.qtd*i.preco)}`).join('\n')+(v.desc?`\nDesconto: -${money(v.desc)}`:'')+`\n*Total: ${money(v.total)}*\nPagamento: ${v.pgto}\nObrigado pela preferência!`}
 function vView(v){const c=S.c.find(x=>x.nome===v.cliente);const fone=c&&String(c.fone||'').replace(/\D/g,'');const txt=recibo(v);
  return `<div style="display:grid;gap:14px"><dl class="dl"><dt>Data</dt><dd>${dt(v.data)}</dd><dt>Cliente</dt><dd>${esc(v.cliente||'Consumidor final')}</dd><dt>Vendedor</dt><dd>${esc(nm(v.por))}</dd><dt>Pagamento</dt><dd>${esc(v.pgto)}</dd><dt>Situação</dt><dd>${v.status==='cancelada'?'Cancelada':'Concluída'}</dd></dl>
  <div class="panel"><div class="list">${(v.itens||[]).map(i=>`<div class="row" style="cursor:default"><div class="rt"><b>${esc(i.nome)}</b><small>${qn(i.qtd)} × ${money(i.preco)}</small></div><div class="rr"><b>${money(i.qtd*i.preco)}</b></div></div>`).join('')}</div>${v.desc?`<div class="tot" style="font-size:15px;font-weight:400"><span>Desconto</span><span>-${money(v.desc)}</span></div>`:''}<div class="tot"><span>Total</span><span>${money(v.total)}</span></div></div>
- <div class="mf">${v.status!=='cancelada'?`<button class="btn gh" data-a="vcancel" data-id="${v.id}">Cancelar venda</button>`:''}<button class="btn gh" data-a="copy" data-id="${v.id}">Copiar recibo</button><a class="btn ok" target="_blank" rel="noopener" href="https://wa.me/${fone?(fone.length<=11?'55'+fone:fone):''}?text=${encodeURIComponent(txt)}">${I('share')}WhatsApp</a></div></div>`}
+ <div class="mf">${v.status!=='cancelada'&&isAdm()?`<button class="btn gh" data-a="vcancel" data-id="${v.id}">Cancelar venda</button>`:''}<button class="btn gh" data-a="copy" data-id="${v.id}">Copiar recibo</button><a class="btn ok" target="_blank" rel="noopener" href="https://wa.me/${fone?(fone.length<=11?'55'+fone:fone):''}?text=${encodeURIComponent(txt)}">${I('share')}WhatsApp</a></div></div>`}
 function checkout(){const sub=UI.cart.reduce((s,i)=>s+i.qtd*i.preco,0);
  modal('Finalizar venda',`<form data-f="sale"><label class="fld">Cliente<input name="cliente" list="dl-c" value="${esc(UI.cli)}" placeholder="Consumidor final"><datalist id="dl-c">${S.c.map(c=>`<option value="${esc(c.nome)}">`).join('')}</datalist></label>
  <div class="fld">Forma de pagamento<select name="pgto">${PG.map(p=>`<option>${p}</option>`).join('')}</select></div>
@@ -552,6 +586,20 @@ const ACT={
   out.forEach(m=>rows.push([dt(m.data),TIPO[m.tipo][0],nm(m.por),m.nome,qn(m.qtd),'',m.motivo]));
   exportFile('lancamentos.csv','\ufeff'+rows.map(r=>r.map(csvEsc).join(';')).join('\n'),'text/csv')},
  async sair(){if(await ask('Sair deste aparelho?','Sair')&&window.__sair)window.__sair()},
+ sairnow(){window.__sair&&window.__sair()},
+ newu(){modal('Novo login',`<form data-f="novou"><label class="fld">Nome<input name="nome" required placeholder="Ex.: João"></label>
+  <label class="fld">E-mail (será o login)<input name="email" type="email" required autocomplete="off"></label>
+  <label class="fld">Senha inicial (mín. 6)<input name="pw" type="password" minlength="6" required autocomplete="new-password"></label>
+  <label class="fld">Acesso<select name="papel">${Object.entries(PAPEIS).map(([k,l])=>`<option value="${k}" ${k==='vendedor'?'selected':''}>${l}</option>`).join('')}</select></label>
+  <div class="note">Passe o e-mail e a senha para a pessoa. Ela pode trocar a senha depois em Configurações.</div>
+  <div class="mf"><button type="button" class="btn gh" data-a="close">Cancelar</button><button class="btn ok">Criar login</button></div></form>`)},
+ editu(id){const p=PERFIS.find(x=>x.id===id);if(!p)return;const me=id===MYUID;modal(p.nome,`<form data-f="editu"><input type="hidden" name="id" value="${id}">
+  <label class="fld">Nome<input name="nome" value="${esc(p.nome)}" required></label>
+  <div class="sub">${esc(p.email||'')}</div>
+  <label class="fld">Acesso<select name="papel" ${me?'disabled':''}>${Object.entries(PAPEIS).map(([k,l])=>`<option value="${k}" ${p.papel===k?'selected':''}>${l}</option>`).join('')}</select></label>
+  <div class="fld">Situação<div class="yn"><label><input type="radio" name="ativo" value="1" ${p.ativo!==false?'checked':''} ${me?'disabled':''}>Liberado</label><label><input type="radio" name="ativo" value="0" ${p.ativo===false?'checked':''} ${me?'disabled':''}>Bloqueado</label></div></div>
+  ${me?'<div class="note">Você não pode tirar o seu próprio acesso de administrador.</div>':''}
+  <div class="mf"><button type="button" class="btn gh" data-a="close">Cancelar</button><button class="btn ok">Salvar</button></div></form>`)},
  menu(){$('#side').classList.toggle('open');$('.shade').classList.toggle('open')},
  close,eye(){const h=document.body.classList.toggle('hide');try{localStorage.setItem(LS+'-hide',h?'1':'0')}catch(e){}},
  askyes(){close();askR&&askR(true);askR=null},askno(){close();askR&&askR(false);askR=null},
@@ -618,15 +666,27 @@ const FORM={
   const falta=UI.cart.filter(i=>{const p=P(i.pid);return p&&p.mov!==false&&i.qtd>(+p.qtd||0)});
   if(falta.length&&!await ask(`Estoque insuficiente para: <b>${falta.map(i=>esc(i.nome)).join(', ')}</b>. Vender mesmo assim? O saldo ficará negativo.`,'Vender mesmo assim'))return;
   const num=S.v.reduce((m,v)=>Math.max(m,+v.num||0),0)+1;
-  const v={id:uid('v'),t:'v',por:myName()||'',num,data:new Date().toISOString(),cliente:d.cliente.trim(),pgto:d.pgto,itens:UI.cart.map(i=>({...i})),desc,total:+(sub-desc).toFixed(2),status:'ok'};
+  const v={id:uid('v'),t:'v',por:myName()||'',por_uid:MYUID,num,data:new Date().toISOString(),cliente:d.cliente.trim(),pgto:d.pgto,itens:UI.cart.map(i=>({...i})),desc,total:+(sub-desc).toFixed(2),status:'ok'};
   put(v);v.itens.forEach(i=>{const p=P(i.pid);if(p&&p.mov!==false)mover(i.pid,'S',i.qtd,'Venda #'+num,{ref:v.id})});
   UI.cart=[];UI.cli='';close();render();modal('Venda #'+num+' concluída',vView(v))},
  pess(f){const d=Object.fromEntries(new FormData(f));if(!d.nome.trim()){toast('Informe o nome');return}
   const old=d.id?S[d.t].find(x=>x.id===d.id):null;put({...(old||{}),id:d.id||uid(d.t),t:d.t,nome:d.nome.trim(),fone:d.fone.trim(),doc:d.doc.trim(),cidade:d.cidade.trim(),obs:d.obs.trim()});close();render();toast('Salvo')},
  inv(f){const ch=[];for(const [id,val] of new FormData(f)){if(String(val).trim()==='')continue;const p=P(id),q=pn(val);if(p&&q!==(+p.qtd||0))ch.push([id,q])}
   if(!ch.length){toast('Nenhuma diferença para ajustar');return}ch.forEach(([id,q])=>mover(id,'A',q,'Inventário'));render();toast(ch.length+' produto'+(ch.length>1?'s ajustados':' ajustado'))},
- async login(f){const d=Object.fromEntries(new FormData(f));if(d.nome.trim())try{localStorage.setItem(LS+'-nome',d.nome.trim())}catch(e){}
+ async login(f){const d=Object.fromEntries(new FormData(f));
   $('#lmsg').textContent='Entrando…';try{await window.__entrar(d.email.trim(),d.senha);render(true)}catch(e){$('#lmsg').textContent=/password|credential|user/i.test(e.code||'')?'E-mail ou senha incorretos.':'Não foi possível entrar: '+(e.code||e.message)}},
+ async setup(f){const d=Object.fromEntries(new FormData(f));const m=$('#gmsg');m.textContent='Configurando…';
+  try{const aid=await window.__novo(d.ae.trim(),d.ap);const b=FS.batch(),now=new Date().toISOString();
+   b.set(FS.doc('perfis/'+aid),{nome:d.an.trim(),email:d.ae.trim(),papel:'admin',ativo:true,criado:now});
+   b.set(FS.doc('perfis/'+MYUID),{nome:d.vn.trim(),email:window.__email()||'',papel:'vendedor',ativo:true,criado:now});
+   b.set(FS.doc('sistema/setup'),{admin:aid,em:now});await b.commit();toast('Acessos configurados!')}
+  catch(e){m.textContent=e.code==='auth/email-already-in-use'?'Esse e-mail já tem login. Use outro e-mail para o administrador.':e.code==='auth/weak-password'?'Senha fraca: use pelo menos 6 caracteres.':'Não foi possível configurar: '+(e.code||e.message)}},
+ async novou(f){const d=Object.fromEntries(new FormData(f));try{toast('Criando login…');const id=await window.__novo(d.email.trim(),d.pw);
+   await FS.doc('perfis/'+id).set({nome:d.nome.trim(),email:d.email.trim(),papel:d.papel,ativo:true,criado:new Date().toISOString()});close();toast('Login criado para '+d.nome.trim())}
+  catch(e){toast(e.code==='auth/email-already-in-use'?'Esse e-mail já tem login.':e.code==='auth/weak-password'?'Senha fraca: mínimo 6 caracteres.':e.code==='auth/invalid-email'?'E-mail inválido.':'Erro: '+(e.code||e.message))}},
+ async editu(f){const d=Object.fromEntries(new FormData(f));const me=d.id===MYUID;const up={nome:d.nome.trim()};if(!me){up.papel=d.papel;up.ativo=d.ativo!=='0'}
+  try{await FS.doc('perfis/'+d.id).set(up,{merge:true});close();toast('Acesso atualizado')}catch(e){toast('Erro: '+(e.code||e.message))}},
+ async senha(f){const pw=new FormData(f).get('pw');try{await window.__senha(pw);f.reset();toast('Senha trocada')}catch(e){toast(e.code==='auth/requires-recent-login'?'Por segurança, saia, entre de novo e troque a senha.':'Erro: '+(e.code||e.message))}},
  cfg(f){const d=Object.fromEntries(new FormData(f));try{localStorage.setItem(LS+'-nome',d.usuario.trim())}catch(e){}regMe();if(!RO&&d.empresa.trim()!==S.cfg.empresa)put({...S.cfg,empresa:d.empresa.trim()||'Minha loja'});render();toast('Configurações salvas')}
 };
 document.addEventListener('submit',e=>{e.preventDefault();const f=e.target;FORM[f.dataset.f]&&FORM[f.dataset.f](f)});
