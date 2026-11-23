@@ -407,7 +407,7 @@ function vtiles(){const q=UI.pq.toLowerCase().trim();
 
 V.vendas=()=>{
   const hoje=localISO(new Date());
-  const r=S.v.filter(v=>isAdm()||v.por_uid===MYUID).filter(v=>{const d=localISO(new Date(v.data));return UI.vf==='todas'||(UI.vf==='hoje'?sameDay(d,hoje):monthKey(d)===monthKey(hoje))});
+  const r=S.v.filter(v=>isAdm()||v.por_uid===MYUID||(!v.por_uid&&v.por&&String(v.por).trim().toLowerCase()===String(myName()).trim().toLowerCase())).filter(v=>{const d=localISO(new Date(v.data));return UI.vf==='todas'||(UI.vf==='hoje'?sameDay(d,hoje):monthKey(d)===monthKey(hoje))});
   const t=r.filter(v=>v.status!=='cancelada').reduce((s,v)=>s+v.total,0);
   return head(isAdm()?'Vendas':'Minhas vendas','list','Vendas',`<a class="btn ok" href="#vender">${I('plus')}Nova venda</a>`)+`<div class="wrap">
   <div class="chips">${[['hoje','Hoje'],['mes','Este mês'],['todas','Todas']].map(([k,l])=>`<button class="chip ${UI.vf===k?'on':''}" data-a="vf" data-id="${k}">${l}</button>`).join('')}</div>
